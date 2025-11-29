@@ -4,7 +4,7 @@ local utils = require("source.utils")
 local floor, sqrt, abs, sin, cos, max, min = math.floor, math.sqrt, math.abs, math.sin, math.cos, math.max, math.min
 
 local countryball = {
-    x = 10, y = 0, z = 10,
+    x = 10, y = 10, z = 10,
     health = 10,
     maxHealth = 3,
     speed = 4,

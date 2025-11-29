@@ -607,12 +607,12 @@ function love.update(dt)
         music:play()
         healthBar:update(dt)
         Knapping:update(dt)
-        Collision.updateEntity(countryball, dt, heights, Blocks.placed,tileGrid, materials)
+        Collision.updateEntity(countryball, dt, tileGrid,Blocks.placed)
         for _, item in ipairs(itemsOnGround) do
-            Collision.updateEntity(item, dt, heights, Blocks.placed,tileGrid, materials)
+            Collision.updateEntity(item, dt, tileGrid, Blocks.placed)
         end
         for _, prop in ipairs(Props.props) do
-            Collision.updateEntity(prop, dt, heights, Blocks.placed,tileGrid, materials)
+            Collision.updateEntity(prop, dt, tileGrid, Blocks.placed)
         end
         Inventory:update(dt)
         Crafting:update(dt)
