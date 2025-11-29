@@ -97,7 +97,7 @@ local function getTileAt(x, z)
     local col = tileGrid[floor(x)]
     return col and col[floor(z)]
 end
-Props.spawnProps(25, 20, 20)
+Props.spawnProps(55, 20, 20, getTileAt)
 
 local function setSeed(seed)
     mapSeed = seed
@@ -349,7 +349,8 @@ function getMouseWorldPos(mx, my, maxDistance)
         local wy = py + rayDir.y * t
         local wz = pz + rayDir.z * t
 
-        local groundY = utils.getHeightAt(wx, wz, heights)
+        local tile = getTileAt(wx, wz)
+        local groundY = tile and tile.y or 0
         if wy <= groundY + 0.5 then
             return wx, groundY, wz
         end
@@ -616,7 +617,7 @@ function love.update(dt)
         end
         Inventory:update(dt)
         Crafting:update(dt)
-        Props.updateProps(dt, heights)
+        Props.updateProps(dt)
     end
 end
 

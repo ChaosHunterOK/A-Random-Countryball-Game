@@ -133,18 +133,22 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
         tile = getTileAt(countryball.x, countryball.z)
     end
 
-    local isWater = false
-    if tile and materials then
-        if tile.texture == materials.waterDeep or tile.texture == materials.waterMedium or tile.texture == materials.waterSmall then
-            isWater = true
+    do
+        local tile = getTileAt(floor(countryball.x), floor(countryball.z))
+        if tile and not tile.isAir then
+            local avgY = (tile[1][2] + tile[2][2] + tile[3][2] + tile[4][2]) * 0.25
+            local waterMaterials = {waterSmall=true, waterMedium=true, waterDeep=true, lava=true}
+            local isWaterTile = false
+            for name,_ in pairs(waterMaterials) do
+                if materials[name] == tile.texture then
+                    isWaterTile = true
+                    break
+                end
+            end
+            countryball.inWater = isWaterTile and countryball.y <= avgY + 0.5
+        else
+            countryball.inWater = false
         end
-    end
-
-    if isWater and not countryball.inWater then
-        countryball.inWater = true
-        countryball.velocityY = countryball.velocityY * 0.35
-    elseif (not isWater) and countryball.inWater then
-        countryball.inWater = false
     end
 
     if countryball.inWater then

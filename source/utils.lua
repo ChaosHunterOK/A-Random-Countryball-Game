@@ -54,21 +54,6 @@ function utils.perlin(x, z, octaves, lacunarity, persistence)
     return total / maxA
 end
 
-function utils.getHeightAt(x, z, heightsTbl)
-    local ix, iz = floor(x), floor(z)
-    local fx, fz = x - ix, z - iz
-
-    local h00 = (heightsTbl[ix] and heightsTbl[ix][iz]) or 0
-    local h10 = (heightsTbl[ix+1] and heightsTbl[ix+1][iz]) or h00
-    local h01 = (heightsTbl[ix] and heightsTbl[ix][iz+1]) or h00
-    local h11 = (heightsTbl[ix+1] and heightsTbl[ix+1][iz+1]) or h00
-
-    local hx1 = h00 + (h10 - h00) * fx
-    local hx2 = h01 + (h11 - h01) * fx
-
-    return hx1 + (hx2 - hx1) * fz
-end
-
 function utils.randomRange(a, b)
     return random() * (b - a) + a
 end
