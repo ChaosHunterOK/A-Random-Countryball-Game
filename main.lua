@@ -132,7 +132,7 @@ local function createBaseplate(width, depth)
     local scale = 0.08
     local biomeScale = 0.05
     local topsoilDepth = 3
-    local maxSubDepth = 50
+    local maxSubDepth = 25
     local cave3dScale = 0.12
     local caveDepthScale = 0.4
     local caveThreshold = 0.62
@@ -164,7 +164,7 @@ local function createBaseplate(width, depth)
         local nz = z * scale
         for x = 0, width do
             local nx = x * scale
-            local h = perlin(nx, nz) * 15
+            local h = perlin(nx, nz) * 7
             local river = sin(x * 0.25) * cos(z * 0.25)
             if river > -0.08 and river < 0.08 then h = h - 2.8 end
             for _, isl in ipairs(islands) do
@@ -607,12 +607,12 @@ function love.update(dt)
         music:play()
         healthBar:update(dt)
         Knapping:update(dt)
-        Collision.updateEntity(countryball, dt, heights, Blocks.placed,tileGrid)
+        Collision.updateEntity(countryball, dt, heights, Blocks.placed,tileGrid, materials)
         for _, item in ipairs(itemsOnGround) do
-            Collision.updateEntity(item, dt, heights, Blocks.placed,tileGrid)
+            Collision.updateEntity(item, dt, heights, Blocks.placed,tileGrid, materials)
         end
         for _, prop in ipairs(Props.props) do
-            Collision.updateEntity(prop, dt, heights, Blocks.placed,tileGrid)
+            Collision.updateEntity(prop, dt, heights, Blocks.placed,tileGrid, materials)
         end
         Inventory:update(dt)
         Crafting:update(dt)

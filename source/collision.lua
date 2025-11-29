@@ -75,7 +75,7 @@ local function getQuadHeight(x, z, tile)
 end
 
 
-function collision.resolveVerts(entity, tileGrid)
+function collision.resolveVerts(entity, tileGrid, materials)
     local gx = math.floor(entity.x)
     local gz = math.floor(entity.z)
 
@@ -87,8 +87,13 @@ function collision.resolveVerts(entity, tileGrid)
 
     local height = getQuadHeight(entity.x, entity.z, tile)
 
-    if entity.y < height then
-        entity.y = height
+    local waterOffset = 0
+    if tile.texture and (tile.texture == materials.waterSmall or tile.texture == materials.waterMedium or tile.texture == materials.waterDeep) then
+        waterOffset = 0.1
+    end
+
+    if entity.y < height + waterOffset then
+        entity.y = height + waterOffset
         entity.velocityY = 0
         entity.onGround = true
     else
