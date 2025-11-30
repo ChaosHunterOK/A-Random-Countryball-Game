@@ -1,6 +1,7 @@
 local love = require "love"
 local lg = love.graphics
 local crafting_recipes = require("source.hud.crafting_recipes")
+local utils = require("source.utils")
 local Crafting = {}
 Crafting.open = false
 Crafting.anim = 0
@@ -72,12 +73,12 @@ function Crafting:draw(inventory, itemTypes, items)
         lg.setColor(1,1,1,1)
         lg.draw(self.invBar, x, y, 0, scale, scale)
 
-        if slot and slot.type and (self.draggingSlot ~= i) then
+        if slot and slot.type then
             local itemImg = itemTypes[slot.type].img
             local iw, ih = itemImg:getWidth(), itemImg:getHeight()
             lg.draw(itemImg, x + (barWidth-iw*scale)/2, y + (barHeight-ih*scale)/2, 0, scale, scale)
             lg.setColor(1,1,1,1)
-            lg.print(slot.count, x + 16*scale, y + 8*scale)
+            utils.drawTextWithBorder(slot.count, x + 16*scale, y + 8*scale)
         end
 
         if mx >= x and mx <= x + barWidth and my >= y and my <= y + barHeight and slot then
@@ -106,7 +107,7 @@ function Crafting:draw(inventory, itemTypes, items)
             if itemImg then
                 lg.setColor(1,1,1,1)
                 lg.draw(itemImg, mx - 16*scale, my - 16*scale, 0, scale, scale)
-                lg.print(slot.count or 1, mx + 10*scale, my + 10*scale)
+                utils.drawTextWithBorder(slot.count or 1, mx + 10*scale, my + 10*scale)
             end
         end
     end
@@ -118,7 +119,7 @@ function Crafting:draw(inventory, itemTypes, items)
         local h = lg.getFont():getHeight() + 6
         lg.rectangle("fill", mx + 8, my - h - 8, w, h)
         lg.setColor(1,1,1,1)
-        lg.print(name, mx + 12, my - h - 4)
+        utils.drawTextWithBorder(name, mx + 12, my - h - 4)
     end
 end
 
@@ -142,9 +143,18 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
     if (button == 1 or button == 2) and self.craftedItem and mx >= outputX and mx <= outputX + barWidth and my >= outputY and my <= outputY + barHeight then
         if inventory:hasFreeSlot() then
             inventory:add(self.craftedItem, 1, itemTypes)
-            self.craftedItem = nil
-            self.slots = { nil, nil, nil, nil }
+            for i = 1, 4 do
+                local slot = self.slots[i]
+                if slot then
+                    slot.count = slot.count - 1
+                    if slot.count <= 0 then
+                        self.slots[i] = nil
+                    end
+                end
+            end
+
             love.audio.play(self.craftSound)
+            self.craftedItem = self:checkRecipe()
         end
         return
     end
@@ -160,20 +170,22 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
             if slot and slot.count then
                 if not inventory.heldItem then
                     if button == 1 then
+                        self.slots[i] = nil
                         inventory.heldItem = slot.type
                         inventory.heldCount = slot.count
-                        self.slots[i] = nil
+                        self.draggingSlot = nil
+                        self.isDragging = false
                     elseif button == 2 then
                         inventory.heldItem = slot.type
                         inventory.heldCount = 1
                         slot.count = slot.count - 1
-                        if slot.count <= 0 then
-                            self.slots[i] = nil
-                        end
+                        if slot.count <= 0 then self.slots[i] = nil end
                     end
                     self.draggingSlot = i
+                    self.isDragging = true
                     return
-                elseif inventory.heldItem == slot.type then
+                end
+                if inventory.heldItem == slot.type then
                     local stackLimit = itemTypes[slot.type].stack or 1
                     if button == 2 then
                         if slot.count < stackLimit then
@@ -225,6 +237,10 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                     return
                 end
             end
+
+            if inventory.heldItem and self.draggingSlot == i then
+                return
+            end
         end
     end
 end
@@ -232,6 +248,7 @@ end
 function Crafting:mousereleased(_, _, button)
     if button == 1 then
         self.draggingSlot = nil
+        self.isDragging = false
     end
 end
 

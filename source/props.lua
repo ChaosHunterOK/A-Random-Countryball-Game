@@ -8,6 +8,7 @@ local floor = math.floor
 local camera_3d = require("source.projectile.camera")
 local countryball = require("source.countryball")
 local ItemsModule = require("source.items")
+local Inventory = require("source.hud.inv")
 local utils = require("source.utils")
 
 local props = {}
@@ -131,8 +132,10 @@ local function handleMousePressed(mx, my)
         local bottom = top + h
 
         if mx >= left and mx <= right and my >= top and my <= bottom then
+            local selected = Inventory:getSelected()
+            local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 1
             if prop.canBreak then
-                prop.health = max(0, prop.health - 1)
+                prop.health = max(0, prop.health - 1 * multiplier)
                 prop.shakeTimer = prop.shakeDuration
             end
             local tIndex = prop.typeIndex
@@ -158,6 +161,22 @@ local function handleMousePressed(mx, my)
                 elseif tIndex == 2 then
                     for j = 1, random(2, 4) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"stone")
+                    end
+                elseif tIndex == 4 then
+                    for j = 1, random(3, 6) do
+                        ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"leaf")
+                    end
+                elseif tIndex == 5 then
+                    for j = 1, random(2, 4) do
+                        ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"porphyry")
+                    end
+                elseif tIndex == 6 then
+                    for j = 1, random(2, 4) do
+                        ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"dark_stone")
+                    end
+                elseif tIndex == 7 then
+                    for j = 1, random(2, 4) do
+                        ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"pumice")
                     end
                 end
 

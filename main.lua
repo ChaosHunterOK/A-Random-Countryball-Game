@@ -469,11 +469,6 @@ function love.mousepressed(mx, my, button)
             return
         end
 
-        if Crafting.open then
-            Crafting:mousepressed(mx, my, button, Inventory, itemTypes)
-            return
-        end
-
         Inventory:mousepressed(mx, my, button, itemTypes)
         local slot = Inventory:getSelected()
         if button == 1 and slot and slot.type == "stone" and slot.count >= 2 and not isCursorOverInteractive(mx, my) then
@@ -486,6 +481,11 @@ function love.mousepressed(mx, my, button)
             if slot.count <= 0 then
                 Inventory.items[Inventory.selectedSlot] = nil
             end
+            return
+        end
+
+        if Crafting.open then
+            Crafting:mousepressed(mx, my, button, Inventory, itemTypes)
             return
         end
 
@@ -511,7 +511,6 @@ function love.mousepressed(mx, my, button)
                 end
             end
         end
-        if gamestate == "game" then
             local tile, cx, cy, cz = getTileUnderCursor(mx, my)
             if tile then
                 local selected = Inventory:getSelected()
@@ -540,7 +539,6 @@ function love.mousepressed(mx, my, button)
                     end
                 end
             end
-        end
         if button == 2 then
             local selected = Inventory:getSelected()
             if selected and blockPlacables[selected.type] then
@@ -827,6 +825,10 @@ function love.keypressed(key)
     elseif gamestate == "game" then
         if key == "escape" and Knapping.open then
             Knapping.open = false
+            return
+        end
+        if key == "escape" and Crafting.open then
+            Crafting.open = false
             return
         end
         if pauseOpen then

@@ -16,6 +16,8 @@ local itemDefinitions = {
     snowball = {"image/items/snowball.png", 20, false},
     stick = {"image/items/stick.png", 50, false},
     stone = {"image/items/stone.png", 50, false},
+    dark_stone = {"image/items/dark_stone.png", 50, false},
+    pumice = {"image/items/pumice.png", 35, false},
     wood = {"image/items/wood.png", 50, false},
     anthracite_coal = {"image/items/anthracite_coal.png", 20, false},
     dirt = {"image/items/dirt.png", 40, false},
@@ -68,9 +70,15 @@ end
 
 local toolMultipliers = {
     stone = 1.1,
+    pumice = 1.05,
     iron_raw = 1.2,
-    stick = 0.8,
+    stick = 0.2,
     tool = 1.2,
+    stone_shovel = 0.9,
+    stone_shovel_head = 0.5,
+    snowball = 0,
+    leaf = 0,
+    dirt = 0.1,
 }
 
 local function getToolMultiplier(itemType)
