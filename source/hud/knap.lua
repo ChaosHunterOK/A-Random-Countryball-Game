@@ -65,7 +65,7 @@ function Knap:draw(inventory, itemTypes)
 
     local gridWidth = 5 * slotW + 4 * spacing
     local startX = (lg.getWidth() - gridWidth) / 2
-    local startY = lg.getHeight()/2 + 355 * (1 - self.anim) - (gridWidth/2)
+    local startY = lg.getHeight()/2 + 555 * (1 - self.anim) - (gridWidth/2)
 
     for i = 1, 25 do
         local col = (i - 1) % 5

@@ -31,8 +31,13 @@ local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
 local Mapsave = require(proj.."mapsave")
+local Effects = require(proj.."effects")
 
 local clamp, perlin = utils.clamp, utils.perlin
+
+local effectsImgs = {
+    smoke = lg.newImage("image/smoke.png")
+}
 
 local itemsOnGround = ItemsModule.itemsOnGround
 local itemTypes = ItemsModule.itemTypes
@@ -300,8 +305,9 @@ local function updateTileMeshes(force)
 end
 local fadeMargin, baseScale = 5, 3.0
 
-local function drawWithStencil(objX, objY, objZ, img, flip)
+local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha)
     if not img then return end
+    rotation = rotation or 0
     local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
     local camChunkX, camChunkZ = getChunkCoord(camera_3d.x), getChunkCoord(camera_3d.z)
     local chunkDistSq = (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2
@@ -322,8 +328,8 @@ local function drawWithStencil(objX, objY, objZ, img, flip)
         end
     end, "replace", 1)
     love.graphics.setStencilTest("equal", 0)
-    lg.setColor(1,1,1,1)
-    lg.draw(img, sx, sy, 0, flip and -scale or scale, scale, w/2, h)
+    lg.setColor(1,1,1,alpha)
+    lg.draw(img, sx, sy, rotation, flip and -scale or scale, scale, w/2, h)
     love.graphics.setStencilTest()
 end
 
@@ -631,6 +637,8 @@ function love.update(dt)
             Inventory:update(dt)
             Crafting:update(dt)
             Props.updateProps(dt)
+            Effects.updateSmoke(dt)
+            --Effects.spawnSmoke(effectsImgs.smoke, countryball.x, countryball.y, countryball.z, 2, nil, nil, 1, 0.5)
         end
     end
 end
