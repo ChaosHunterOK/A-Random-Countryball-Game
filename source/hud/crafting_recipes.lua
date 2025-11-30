@@ -1,21 +1,25 @@
 local recipe = {}
 
 recipe.recipes = {
-    { 
+    --[[{ 
         input = { "apple", nil, nil, nil },
         output = "paper"
-    },
+    },]] --will let this here
     {
         input = {"stone", nil, "stick", nil},
         output = "stone_tool"
     },
     {
-        input = {"wood", "wood", nil, nil},
-        output = "stick"
+        input = {"stone_shovel_head", nil, "stick", nil},
+        output = "stone_shovel"
     },
     {
-        input = {"bituminous_coal", "iron_raw", nil, nil},
-        output = "anthracite_coal"
+        input = {"stone_hoe_head", nil, "stick", nil},
+        output = "stone_hoe"
+    },
+    {
+        input = {"stone_hammer_head", nil, "stick", nil},
+        output = "stone_hammer"
     },
 }
 

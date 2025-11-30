@@ -15,7 +15,7 @@ format:
 ]]
 
 knapping_recipes.recipes = {
-        {
+    {
         input = {
             nil,  nil, nil,   nil, nil,
             "stone","stone", "stone","stone", nil,
@@ -24,6 +24,26 @@ knapping_recipes.recipes = {
             nil,   nil,     nil,     nil,    nil,
         },
         output = "stone_hoe_head"
+    },
+    {
+        input = {
+            nil,  nil, nil,   nil, nil,
+            "stone","stone", "stone","stone", "stone",
+            "stone","stone", "stone", "stone", "stone",
+            nil,   nil,     "stone",     nil,    nil,
+            nil,   nil,     nil,     nil,    nil,
+        },
+        output = "stone_hammer_head"
+    },
+    {
+        input = {
+            nil,  "stone", "stone",   "stone", nil,
+            nil,"stone", "stone","stone", nil,
+            nil,"stone", "stone", "stone", nil,
+            nil,   "stone",     "stone",     "stone",    nil,
+            nil,   nil,     "stone",     nil,    nil,
+        },
+        output = "stone_shovel_head"
     },
     --[[{
         input = {

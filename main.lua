@@ -26,7 +26,7 @@ local verts = require(proj.."verts")
 local Props = require(src.."props")
 local utils = require(src.."utils")
 local Collision = require(src.."collision")
-local OptionsMenu = require(menu.."options")
+local OptMenu = require(menu.."options")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
@@ -59,6 +59,13 @@ local menuSpacing = 81.25
 local menuCamX, menuCamZ = 50, 50
 local menuTargetCamX, menuTargetCamZ = 50, 50
 local bgSmooth = 0.02
+
+local pauseOpen = false
+local pauseProgress = 0
+local pauseItems = {"Resume", "Options", "Leave"}
+local pauseSelected = 1
+local pauseSmooth = 10
+local prevGamestate = nil
 
 local titleImage = lg.newImage("image/menu/title.png")
 
@@ -457,100 +464,102 @@ function isMouseOnItem(mx, my, item, image, scale, sx, sy2)
 end
 
 function love.mousepressed(mx, my, button)
-    if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
-        return
-    end
-
-    if Crafting.open then
-        Crafting:mousepressed(mx, my, button, Inventory, itemTypes)
-        return
-    end
-
-    Inventory:mousepressed(mx, my, button, itemTypes)
-    local slot = Inventory:getSelected()
-    if button == 1 and slot and slot.type == "stone" and slot.count >= 2 and not isCursorOverInteractive(mx, my) then
-        if not Knapping.open then
-            slot.count = slot.count - 1
+    if not pauseOpen and gamestate == "game" then
+        if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
+            return
         end
-        Knapping.open = true
-        Knapping:resetGrid()
-        Knapping.timer = 0
-        if slot.count <= 0 then
-            Inventory.items[Inventory.selectedSlot] = nil
-        end
-        return
-    end
 
-    if Knapping.open then
-        Knapping.timer = (Knapping.timer or 0) + love.timer.getDelta()
-        if Knapping.timer >= 0.3 then
-            Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+        if Crafting.open then
+            Crafting:mousepressed(mx, my, button, Inventory, itemTypes)
+            return
         end
-        return
-    end
-    for i = #itemsOnGround, 1, -1 do
-        local item = itemsOnGround[i]
-        local sx, sy2, z2 = camera_3d:project3D(item.x, item.y, item.z)
-        if sx and z2 > 0 then
-            local scale = (1 / z2) * 6
-            local img = ItemsModule.getItemImage(item.type)
-            if img and isMouseOnItem(mx, my, item, img, scale, sx, sy2) then
-                if Inventory:hasFreeSlot() or Inventory:canAddEvenIfFull(item.type, itemTypes) then
-                    Inventory:add(item.type, 1, itemTypes)
-                    ItemsModule.removeItem(i)
-                    return
-                end
+
+        Inventory:mousepressed(mx, my, button, itemTypes)
+        local slot = Inventory:getSelected()
+        if button == 1 and slot and slot.type == "stone" and slot.count >= 2 and not isCursorOverInteractive(mx, my) then
+            if not Knapping.open then
+                slot.count = slot.count - 1
             end
-        end
-    end
-    if gamestate == "game" then
-        local tile, cx, cy, cz = getTileUnderCursor(mx, my)
-        if tile then
-            local selected = Inventory:getSelected()
-            local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 1
-            local matName
-            for k,v in pairs(materials) do
-                if v == tile.texture then matName = k break end
+            Knapping.open = true
+            Knapping:resetGrid()
+            Knapping.timer = 0
+            if slot.count <= 0 then
+                Inventory.items[Inventory.selectedSlot] = nil
             end
-            if not matName or unbreakableMaterials[matName] then return end
+            return
+        end
 
-            local maxDur = Blocks.durabilities[matName] or 3
-            local br = Blocks.currentBreaking
-            if br.tile ~= tile then
-                br.tile = tile
-                br.progress = 0
-                br.max = maxDur
-            else
-                br.progress = br.progress + multiplier
-                if br.progress >= br.max then
-                    revealUnderground(tile)
-                    ItemsModule.dropItem(cx, cy+1, cz, matName)
-                    breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
-                    br.tile = nil
-                    br.progress = 0
-                    updateTileMeshes(true)
-                end
+        if Knapping.open then
+            Knapping.timer = (Knapping.timer or 0) + love.timer.getDelta()
+            if Knapping.timer >= 0.3 then
+                Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
             end
+            return
         end
-    end
-    if button == 2 then
-        local selected = Inventory:getSelected()
-        if selected and blockPlacables[selected.type] then
-            local tile, cx, cy, cz = getTileUnderCursor(mx, my, 20)
-            if tile then
-                local newX, newY, newZ = floor(cx), floor(cy)+1, floor(cz)
-                local occupied = false
-                for _, b in ipairs(Blocks.placed) do
-                    if b.x==newX and b.y==newY and b.z==newZ then
-                        occupied = true
-                        break
+        for i = #itemsOnGround, 1, -1 do
+            local item = itemsOnGround[i]
+            local sx, sy2, z2 = camera_3d:project3D(item.x, item.y, item.z)
+            if sx and z2 > 0 then
+                local scale = (1 / z2) * 6
+                local img = ItemsModule.getItemImage(item.type)
+                if img and isMouseOnItem(mx, my, item, img, scale, sx, sy2) then
+                    if Inventory:hasFreeSlot() or Inventory:canAddEvenIfFull(item.type, itemTypes) then
+                        Inventory:add(item.type, 1, itemTypes)
+                        ItemsModule.removeItem(i)
+                        return
                     end
                 end
-                if not occupied then
-                    Blocks.place(newX,newY,newZ,selected.type)
-                    selected.count = selected.count - 1
-                    if selected.count <= 0 then
-                        Inventory.items[Inventory.selectedSlot] = nil
+            end
+        end
+        if gamestate == "game" then
+            local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+            if tile then
+                local selected = Inventory:getSelected()
+                local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 1
+                local matName
+                for k,v in pairs(materials) do
+                    if v == tile.texture then matName = k break end
+                end
+                if not matName or unbreakableMaterials[matName] then return end
+
+                local maxDur = Blocks.durabilities[matName] or 3
+                local br = Blocks.currentBreaking
+                if br.tile ~= tile then
+                    br.tile = tile
+                    br.progress = 0
+                    br.max = maxDur
+                else
+                    br.progress = br.progress + multiplier
+                    if br.progress >= br.max then
+                        revealUnderground(tile)
+                        ItemsModule.dropItem(cx, cy+1, cz, matName)
+                        breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
+                        br.tile = nil
+                        br.progress = 0
+                        updateTileMeshes(true)
+                    end
+                end
+            end
+        end
+        if button == 2 then
+            local selected = Inventory:getSelected()
+            if selected and blockPlacables[selected.type] then
+                local tile, cx, cy, cz = getTileUnderCursor(mx, my, 20)
+                if tile then
+                    local newX, newY, newZ = floor(cx), floor(cy)+1, floor(cz)
+                    local occupied = false
+                    for _, b in ipairs(Blocks.placed) do
+                        if b.x==newX and b.y==newY and b.z==newZ then
+                            occupied = true
+                            break
+                        end
+                    end
+                    if not occupied then
+                        Blocks.place(newX,newY,newZ,selected.type)
+                        selected.count = selected.count - 1
+                        if selected.count <= 0 then
+                            Inventory.items[Inventory.selectedSlot] = nil
+                        end
                     end
                 end
             end
@@ -585,39 +594,46 @@ function love.update(dt)
         local diff = titleTargetX - titleX
         titleX = titleX + diff * (1 - math.exp(-titleSlideSpeed * dt))
     elseif gamestate == "game" then
-        local camSpeedYaw, camSpeedPitch = 1.5 * dt, 1.2 * dt
-        if love.keyboard.isDown("a") then camera_3d.yaw = camera_3d.yaw + camSpeedYaw end
-        if love.keyboard.isDown("d") then camera_3d.yaw = camera_3d.yaw - camSpeedYaw end
-        if love.keyboard.isDown("w") then camera_3d.pitch = camera_3d.pitch + camSpeedPitch end
-        if love.keyboard.isDown("s") then camera_3d.pitch = camera_3d.pitch - camSpeedPitch end
-        camera_3d.pitch = clamp(camera_3d.pitch, -1.2, 1.2)
+        local pauseTarget = pauseOpen and 1 or 0
+        pauseProgress = pauseProgress + (pauseTarget - pauseProgress) * (1 - math.exp(-pauseSmooth * dt))
+        if math.abs(pauseProgress) < 1e-4 then pauseProgress = 0 end
+        if math.abs(1 - pauseProgress) < 1e-4 then pauseProgress = 1 end
+        if pauseOpen then
+        else
+            local camSpeedYaw, camSpeedPitch = 1.5 * dt, 1.2 * dt
+            if love.keyboard.isDown("a") then camera_3d.yaw = camera_3d.yaw + camSpeedYaw end
+            if love.keyboard.isDown("d") then camera_3d.yaw = camera_3d.yaw - camSpeedYaw end
+            if love.keyboard.isDown("w") then camera_3d.pitch = camera_3d.pitch + camSpeedPitch end
+            if love.keyboard.isDown("s") then camera_3d.pitch = camera_3d.pitch - camSpeedPitch end
+            camera_3d.pitch = clamp(camera_3d.pitch, -1.2, 1.2)
 
-        countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera_3d)
-        local followDist, followHeight = 12 / camera_3d.zoom, 15 / camera_3d.zoom
-        local targetX = countryball.x - sin(camera_3d.yaw) * followDist
-        local targetZ = countryball.z - cos(camera_3d.yaw) * followDist
-        local targetY = countryball.y - sin(camera_3d.pitch) * followHeight
-        local smooth = clamp(camera_3d.smoothness * dt, 0, 1)
-        camera_3d.x = camera_3d.x + (targetX - camera_3d.x) * smooth
-        camera_3d.y = camera_3d.y + (targetY - camera_3d.y) * smooth
-        camera_3d.z = camera_3d.z + (targetZ - camera_3d.z) * smooth
+            countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera_3d)
+            local followDist, followHeight = 12 / camera_3d.zoom, 15 / camera_3d.zoom
+            local targetX = countryball.x - sin(camera_3d.yaw) * followDist
+            local targetZ = countryball.z - cos(camera_3d.yaw) * followDist
+            local targetY = countryball.y - sin(camera_3d.pitch) * followHeight
+            local smooth = clamp(camera_3d.smoothness * dt, 0, 1)
+            camera_3d.x = camera_3d.x + (targetX - camera_3d.x) * smooth
+            camera_3d.y = camera_3d.y + (targetY - camera_3d.y) * smooth
+            camera_3d.z = camera_3d.z + (targetZ - camera_3d.z) * smooth
 
-        if countryball.y <= -10 then
-            healthBar:setHealth(0)
+            if countryball.y <= -10 then
+                healthBar:setHealth(0)
+            end
+            music:play()
+            healthBar:update(dt)
+            Knapping:update(dt)
+            Collision.updateEntity(countryball, dt, tileGrid,Blocks.placed)
+            for _, item in ipairs(itemsOnGround) do
+                Collision.updateEntity(item, dt, tileGrid, Blocks.placed)
+            end
+            for _, prop in ipairs(Props.props) do
+                Collision.updateEntity(prop, dt, tileGrid, Blocks.placed)
+            end
+            Inventory:update(dt)
+            Crafting:update(dt)
+            Props.updateProps(dt)
         end
-        music:play()
-        healthBar:update(dt)
-        Knapping:update(dt)
-        Collision.updateEntity(countryball, dt, tileGrid,Blocks.placed)
-        for _, item in ipairs(itemsOnGround) do
-            Collision.updateEntity(item, dt, tileGrid, Blocks.placed)
-        end
-        for _, prop in ipairs(Props.props) do
-            Collision.updateEntity(prop, dt, tileGrid, Blocks.placed)
-        end
-        Inventory:update(dt)
-        Crafting:update(dt)
-        Props.updateProps(dt)
     end
 end
 
@@ -695,6 +711,24 @@ function mainGame()
     Crafting:draw(Inventory, itemTypes, items)
     Knapping:draw(Inventory, itemTypes)
     Inventory:draw(itemTypes)
+
+    if pauseProgress > 0 then
+        local alpha = pauseProgress * 0.9
+        lg.setColor(0, 0, 0, 0.5 * alpha)
+        lg.rectangle("fill", 0, 0, base_width, base_height)
+        local centerX = base_width / 2
+        local startY = base_height * 0.35
+        local spacing = menuSpacing * 0.9
+        for i, text in ipairs(pauseItems) do
+            local slideOffset = (1 - pauseProgress) * 80
+            local y = startY + (i - 1) * spacing + slideOffset
+            local isSelected = (i == pauseSelected)
+            local borderColor = {0, 0, 0, alpha}
+            local textColor = isSelected and {1, 1, 0, alpha} or {1, 1, 1, alpha}
+            utils.drawTextWithBorder(text, centerX / font:getWidth(text), y, base_width, "center", borderColor, textColor)
+        end
+        lg.setColor(1,1,1,1)
+    end
 end
 
 function menuScreen()
@@ -708,12 +742,12 @@ function menuScreen()
         local isSelected = i == selectedIndex
         local borderColor = {0,0,0}
         local textColor = isSelected and {1,1,0} or {1,1,1}
-        utils.drawTextWithBorder(text, x, y, love.graphics.getWidth(), "left", borderColor, textColor)
+        utils.drawTextWithBorder(text, x, y, base_width, "left", borderColor, textColor)
         love.graphics.setColor(1,1,1)
     end
 
     local text = "2025 REVIVAL"
-    utils.drawTextWithBorder(text, base_width - font:getWidth(text) - 10, base_height - 30, love.graphics.getWidth())
+    utils.drawTextWithBorder(text, base_width - font:getWidth(text) - 10, base_height - 30, base_width)
     lg.draw(titleImage, titleX, 30)
 end
 
@@ -725,7 +759,7 @@ function love.draw()
         menuScreen()
     elseif gamestate == "options" then
         drawTiles()
-        OptionsMenu:draw()
+        OptMenu:draw()
     elseif gamestate == "mods" then
     elseif gamestate == "skins" then
     end
@@ -749,6 +783,7 @@ function love.load()
     Cursor.load()
     font = lg.newFont("font/font.ttf", 26)
     lg.setFont(font)
+    OptMenu:load(camera_3d, chunk_thing)
 
     music = love.audio.newSource("music/music.mp3", "stream")
     music:setLooping(true)
@@ -790,6 +825,40 @@ function love.keypressed(key)
             end
         end
     elseif gamestate == "game" then
+        if key == "escape" and Knapping.open then
+            Knapping.open = false
+            return
+        end
+        if pauseOpen then
+            if key == "up" then
+                pauseSelected = pauseSelected - 1
+                if pauseSelected < 1 then pauseSelected = #pauseItems end
+            elseif key == "down" then
+                pauseSelected = pauseSelected + 1
+                if pauseSelected > #pauseItems then pauseSelected = 1 end
+            elseif key == "return" then
+                local choice = pauseItems[pauseSelected]
+                if choice == "Resume" then
+                    pauseOpen = false
+                    love.mouse.setVisible(false)
+                elseif choice == "Options" then
+                    prevGamestate = "game"
+                    gamestate = "options"
+                    pauseOpen = false
+                    love.mouse.setVisible(false)
+                elseif choice == "Leave" then
+                    pauseOpen = false
+                    love.mouse.setVisible(false)
+                    gamestate = "menu"
+                end
+            elseif key == "escape" then
+                pauseOpen = not pauseOpen
+                if pauseOpen then
+                    pauseSelected = 1
+                end
+            end
+            return
+        end
         if key == "tab" then
             camera_3d.freeLook = not camera_3d.freeLook
         end
@@ -798,14 +867,22 @@ function love.keypressed(key)
 
         if key == "q" then healthBar:damageHealth(1) end
 
-        if key == "escape" then Knapping.open = false end
-
         if key == "f5" then
             Mapsave.save(baseplateTiles, materials)
         end
+
+        if key == "escape" then
+            pauseOpen = not pauseOpen
+            if pauseOpen then
+                pauseSelected = 1
+            end
+        end
     elseif gamestate == "options" then
-        OptionsMenu:keypressed(key, camera_3d, chunk_thing)
-        if key == "escape" then gamestate = "menu" end
+        OptMenu:keypressed(key, camera_3d, chunk_thing)
+        if key == "escape" then
+            gamestate = prevGamestate or "menu"
+            prevGamestate = nil
+        end
     end
 end
 

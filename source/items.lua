@@ -19,9 +19,15 @@ local itemDefinitions = {
     wood = {"image/items/wood.png", 50, false},
     anthracite_coal = {"image/items/anthracite_coal.png", 20, false},
     dirt = {"image/items/dirt.png", 40, false},
+    leaf = {"image/items/leaf.png", 50, false},
 
-    stone_shovel_head = {"image/items/heads/stone/shovel.png", 2, false},
-    stone_hoe_head = {"image/items/heads/stone/hoe.png", 2, false},
+    stone_shovel_head = {"image/items/heads/stone/shovel.png", 5, false},
+    stone_hoe_head = {"image/items/heads/stone/hoe.png", 5, false},
+    stone_hammer_head = {"image/items/heads/stone/hammer.png", 5, false},
+
+    stone_shovel = {"image/items/shovel_type/stone.png", 2, false},
+    stone_hoe = {"image/items/hoe_type/stone.png", 2, false},
+    stone_hammer = {"image/items/hammer_type/stone.png", 2, false},
     stone_tool = {"image/items/thing.png", 2, false, 50},
 }
 

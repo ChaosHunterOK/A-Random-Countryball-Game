@@ -1,18 +1,59 @@
 local love = require"love"
 local lg = love.graphics
 local utils = require("source.utils")
+local json = require("source.dkjson")
 
 local Options = {}
+local optionsFile = "options.json"
 
 Options.items = {
     {name="Music Volume", type="slider", value=0.5, min=0, max=1, step=0.05},
     {name="Camera Sensitivity", type="slider", value=0, min=-3.0, max=3.0, step=0.1},
-    {name="Camera Smoothness", type="slider", value=0.5, min=0.5, max=1.0, step=0.1},
+    {name="Camera Smoothness", type="slider", value=5.0, min=2.5, max=10.0, step=0.1},
     {name="Chunk Size", type="slider", value=4, min=1, max=30, step=1},
     {name="Render Chunk Radious", type="slider", value=4, min=1, max=30, step=1},
     --{name="Back", type="action"}
 }
 Options.selectedIndex = 1
+
+function Options:load(camera, chunk_thing)
+    if love.filesystem.getInfo(optionsFile) then
+        local data = love.filesystem.read(optionsFile)
+        local decoded = json.decode(data)
+
+        if decoded then
+            for _, item in ipairs(self.items) do
+                if decoded[item.name] ~= nil then
+                    item.value = decoded[item.name]
+                end
+            end
+        end
+    end
+    for _, item in ipairs(self.items) do
+        if item.name == "Music Volume" then
+            love.audio.setVolume(item.value)
+        elseif item.name == "Camera Sensitivity" then
+            camera.sensitivity = item.value
+        elseif item.name == "Camera Smoothness" then
+            camera.smoothness = item.value
+        elseif item.name == "Chunk Size" then
+            chunk_thing.chunk_size = item.value
+        elseif item.name == "Render Chunk Radious" then
+            chunk_thing.render_chunk_radius = item.value
+        end
+    end
+end
+
+function Options:save()
+    local data = {}
+
+    for _, item in ipairs(self.items) do
+        data[item.name] = item.value
+    end
+
+    local encoded = json.encode(data, { indent = true })
+    love.filesystem.write(optionsFile, encoded)
+end
 
 function Options:update(dt)
 end
@@ -54,6 +95,8 @@ function Options:keypressed(key, camera, chunk_thing)
     elseif key == "left" or key == "right" then
         if current.type == "slider" then
             local delta = (key == "left") and -current.step or current.step
+            local oldValue = current.value
+
             current.value = math.max(current.min, math.min(current.max, current.value + delta))
             if current.name == "Music Volume" then
                 love.audio.setVolume(current.value)
@@ -64,7 +107,11 @@ function Options:keypressed(key, camera, chunk_thing)
             elseif current.name == "Chunk Size" then
                 chunk_thing.chunk_size = current.value
             elseif current.name == "Render Chunk Radious" then
-                chunk_thing.render_chunk_radius= current.value
+                chunk_thing.render_chunk_radius = current.value
+            end
+
+            if current.value ~= oldValue then
+                self:save()
             end
         end
     end
