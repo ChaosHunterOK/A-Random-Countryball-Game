@@ -142,10 +142,8 @@ local function createBaseplate(width, depth)
     local scale, biomeScale = 0.08, 0.05
     local topsoilDepth, maxSubDepth = 3, 25
     local cave3dScale, caveDepthScale, caveThreshold = 0.12, 0.4, 0.62
-
     heights = {}
     for x = 0, width do heights[x] = {} end
-
     local islands = {}
     for i = 1, 3 do
         islands[i] = {
@@ -155,37 +153,44 @@ local function createBaseplate(width, depth)
             height = random(2, 7)
         }
     end
-
     local volcanoCenters = {}
     local volcanoNoiseScale = 0.04
     for z = 0, depth do
         for x = 0, width do
-            local v = perlin(x*volcanoNoiseScale, z*volcanoNoiseScale)
+            local v = perlin(x * volcanoNoiseScale, z * volcanoNoiseScale)
             if v > 0.94 then
-                volcanoCenters[#volcanoCenters+1] = {x=x, z=z, strength=(v-0.94)*8}
+                table.insert(volcanoCenters, {x=x, z=z, strength=(v-0.94)*8})
             end
         end
     end
 
     for z = 0, depth do
-        local nz = z*scale
+        local nz = z * scale
         for x = 0, width do
-            local nx = x*scale
-            local h = perlin(nx, nz)*7
-            local river = sin(x*0.25)*cos(z*0.25)
+            local nx = x * scale
+            local h = perlin(nx, nz) * 7
+            local river = sin(x*0.25) * cos(z*0.25)
             if river > -0.08 and river < 0.08 then h = h - 2.8 end
             for _, isl in ipairs(islands) do
-                local dx, dz = x-isl.cx, z-isl.cz
+                local dx, dz = x - isl.cx, z - isl.cz
                 local dist = sqrt(dx*dx + dz*dz)
-                if dist < isl.radius then h = h + isl.height*(1-dist/isl.radius) end
+                if dist < isl.radius then
+                    h = h + isl.height * (1 - dist / isl.radius)
+                end
             end
             local volcanoNoise = perlin(x*0.05, z*0.05)
-            if volcanoNoise > 0.95 then h = h + 6 + (volcanoNoise-0.95)*10 end
+            if volcanoNoise > 0.95 then
+                h = h + 6 + (volcanoNoise-0.95)*10
+            end
             local caveMask = perlin(x*0.09, z*0.09, 0)
-            if caveMask > 0.7 and h > 3 then h = h - caveMask*2.5 end
+            if caveMask > 0.7 and h > 3 then
+                h = h - caveMask*2.5
+            end
+
             heights[x][z] = h
         end
     end
+
     baseplateTiles, tileGrid = {}, {}
     local idx = 1
     for z = 0, depth-1 do
@@ -193,14 +198,17 @@ local function createBaseplate(width, depth)
             local h1, h2 = heights[x][z], heights[x+1][z]
             local h3, h4 = heights[x+1][z+1], heights[x][z+1]
             local avgH = (h1+h2+h3+h4)*0.25
+
             local biomeNoise = perlin(x*biomeScale, z*biomeScale)
             local tempNoise  = perlin(x*(biomeScale*0.6), z*(biomeScale*0.6)+200)
             local humidNoise = perlin(x*(biomeScale*1.2)+400, z*(biomeScale*1.2)+400)
             local volcanicInfluence = perlin(x*0.04+1000, z*0.04+1000)
 
             local tileTexture
-            if avgH < 0.6 then tileTexture = materials.waterDeep
-            elseif avgH < 1.8 then tileTexture = materials.waterMedium
+            if avgH < 0.6 then
+                tileTexture = materials.waterDeep
+            elseif avgH < 1.8 then
+                tileTexture = materials.waterMedium
             elseif avgH < 3.6 then
                 if tempNoise < -0.2 then tileTexture = materials.sandGypsum
                 elseif biomeNoise < -0.2 then tileTexture = materials.sandGarnet
@@ -208,50 +216,43 @@ local function createBaseplate(width, depth)
                 else tileTexture = materials.sandNormal
                 end
             elseif avgH < 6 then
-                tileTexture = tempNoise < -0.25 and materials.grassCold or (tempNoise>0.4 and materials.grassHot or materials.grassNormal)
+                tileTexture = tempNoise < -0.25 and materials.grassCold
+                    or (tempNoise > 0.4 and materials.grassHot or materials.grassNormal)
             elseif avgH < 9.5 then
                 local rockSelector = perlin(x*0.2, z*0.2)
-                tileTexture = rockSelector < -0.25 and materials.stone_dark or (rockSelector>0.45 and materials.rhyolite or materials.stone)
+                tileTexture = rockSelector < -0.25 and materials.stone_dark
+                    or (rockSelector > 0.45 and materials.rhyolite or materials.stone)
             elseif avgH < 11 then
                 tileTexture = materials.granite
-            else tileTexture = materials.snow
+            else
+                tileTexture = materials.snow
             end
 
             if volcanicInfluence > 0.93 and avgH > 6 then
-                tileTexture = avgH>10 and perlin(x*0.2,z*0.2)>0.5 and materials.lava or materials.basalt
+                tileTexture = avgH > 10 and (perlin(x*0.2,z*0.2)>0.5 and materials.lava or materials.basalt) or materials.basalt
             end
+
             local subsurface = {}
-            local caveSeedX, caveSeedZ = x*cave3dScale + 500, z*cave3dScale + 700
-            for depthY=1,maxSubDepth do
+            for depthY = 1, maxSubDepth do
                 local worldY = avgH - depthY
-                local caveVal = caveNoise3D(caveSeedX, worldY*caveDepthScale + 900, caveSeedZ, cave3dScale)
+                local caveVal = caveNoise3D(x*cave3dScale+500, worldY*caveDepthScale+900, z*cave3dScale+700, cave3dScale)
                 if caveVal > caveThreshold and worldY < avgH-1 then
                     subsurface[depthY] = "air_cave"
                 else
-                    subsurface[depthY] = depthY <= topsoilDepth and (avgH<3.6 and "sandNormal" or "dirt") or (
-                        volcanicInfluence>0.92 and "basalt" or
-                        (function()
-                            local n = perlin(x*0.18,z*0.18,worldY*0.12)
-                            if n<-0.45 then return "gabbro"
-                            elseif n<-0.15 then return "granite"
-                            elseif n<0.25 then return "porphyry"
-                            else local s=perlin(x*0.4+300,z*0.4+300,worldY*0.18); return s>0.55 and "pumice" or (s>0.25 and "rhyolite" or "stone") end
-                        end)()
-                    )
+                    subsurface[depthY] = depthY <= topsoilDepth and (avgH<3.6 and "sandNormal" or "dirt") 
+                        or (volcanicInfluence>0.92 and "basalt" or "stone")
                 end
             end
-
-            if subsurface[1]=="dirt" and subsurface[2]=="air_cave" then subsurface[1]="air_cave" end
-
-            local biome = determineBiome(avgH,tempNoise,humidNoise,volcanicInfluence)
+            if subsurface[1] == "dirt" and subsurface[2] == "air_cave" then subsurface[1] = "air_cave" end
+            local biome = determineBiome(avgH, tempNoise, humidNoise, volcanicInfluence)
 
             local tile = {
                 {x,h1,z},{x+1,h2,z},{x+1,h3,z+1},{x,h4,z+1},
-                x=x,z=z,y=avgH, w=1,d=1,h=1,height=avgH,curHeight=avgH,
+                x=x,z=z,y=avgH,height=avgH,curHeight=avgH,
                 biome=biome,texture=tileTexture,subsurface=subsurface,
                 containsCave=utils.any(subsurface,function(v) return v=="air_cave" end),
                 isVolcano=(volcanicInfluence>0.92 and avgH>6),
-                heights={h1,h2,h3,h4},
+                heights={h1,h2,h3,h4}
             }
 
             baseplateTiles[idx] = tile
@@ -270,12 +271,9 @@ end
 
 local preloadedTiles = {}
 local lastCamChunkX, lastCamChunkZ = nil, nil
-local TILE_UPDATE_THRESHOLD = 1
 local function updateTileMeshes(force)
     local camChunkX, camChunkZ = getChunkCoord(camera_3d.x), getChunkCoord(camera_3d.z)
-    local dx = camChunkX - (lastCamChunkX or -99999)
-    local dz = camChunkZ - (lastCamChunkZ or -99999)
-    if not force and (abs(dx) < TILE_UPDATE_THRESHOLD and abs(dz) < TILE_UPDATE_THRESHOLD) then
+    if not force and camChunkX == lastCamChunkX and camChunkZ == lastCamChunkZ then
         return
     end
     preloadedTiles = verts.generate(baseplateTiles, camera_3d, renderDistanceSq, tileGrid, materials)
@@ -283,36 +281,46 @@ local function updateTileMeshes(force)
     lastCamChunkX, lastCamChunkZ = camChunkX, camChunkZ
 end
 local fadeMargin, baseScale = 5, 3.0
-local function drawWithStencil(objX,objY,objZ,img,flip,rotation,alpha)
+
+local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha)
     if not img then return end
     rotation = rotation or 0
-    local objChunkX,objChunkZ = getChunkCoord(objX),getChunkCoord(objZ)
-    local camChunkX,camChunkZ = getChunkCoord(camera_3d.x),getChunkCoord(camera_3d.z)
-    if (objChunkX-camChunkX)^2 + (objChunkZ-camChunkZ)^2 > chunk_thing.render_chunk_radius^2 then return end
+    local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
+    local camChunkX, camChunkZ = getChunkCoord(camera_3d.x), getChunkCoord(camera_3d.z)
+    local chunkDistSq = (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2
+    if chunkDistSq > chunk_thing.render_chunk_radius^2 then return end
 
-    local sx,sy,z = camera_3d:project3D(objX,objY,objZ)
-    if not sx or z<=0 or sx<fadeMargin or sx>base_width-fadeMargin or sy<fadeMargin or sy>base_height-fadeMargin then return end
+    local sx, sy, z = camera_3d:project3D(objX, objY, objZ)
+    if not sx or z <= 0 then return end
+    if sx < fadeMargin or sx > base_width - fadeMargin or sy < fadeMargin or sy > base_height - fadeMargin then return end
 
-    local scale = (camera_3d.hw/z)*(camera_3d.zoom*0.0025)*baseScale
-    local w,h = img:getWidth(), img:getHeight()
-    local objDistSq = (objX-camera_3d.x)^2 + (objZ-camera_3d.z)^2
+    local scale = (camera_3d.hw / z) * (camera_3d.zoom * 0.0025) * baseScale
+    local w, h = (img and img.w) or img:getWidth(), (img and img.h) or img:getHeight()
+    local objDistSq = (objX - camera_3d.x)^2 + (objZ - camera_3d.z)^2
     local tilesForStencil = {}
-    for _,t in ipairs(preloadedTiles) do
-        if t.mesh and t.dist<=renderDistanceSq and t.dist<=objDistSq+1 then tilesForStencil[#tilesForStencil+1]=t end
+    for _, t in ipairs(preloadedTiles) do
+        if t.mesh and t.dist <= renderDistanceSq and t.dist <= objDistSq + 1 then
+            tilesForStencil[#tilesForStencil + 1] = t
+        end
     end
 
-    if #tilesForStencil==0 then
+    if #tilesForStencil == 0 then
         lg.setColor(1,1,1,alpha)
-        lg.draw(img,sx,sy,rotation,flip and -scale or scale,scale,w/2,h)
+        lg.draw(img, sx, sy, rotation, flip and -scale or scale, scale, w/2, h)
         return
     end
 
-    lg.stencil(function() for _,t in ipairs(tilesForStencil) do lg.draw(t.mesh) end end,"replace",1)
-    lg.setStencilTest("equal",0)
+    love.graphics.stencil(function()
+        for _, t in ipairs(tilesForStencil) do
+            lg.draw(t.mesh)
+        end
+    end, "replace", 1)
+    love.graphics.setStencilTest("equal", 0)
     lg.setColor(1,1,1,alpha)
-    lg.draw(img,sx,sy,rotation,flip and -scale or scale,scale,w/2,h)
-    lg.setStencilTest()
+    lg.draw(img, sx, sy, rotation, flip and -scale or scale, scale, w/2, h)
+    love.graphics.setStencilTest()
 end
+
 
 function getMouseWorldPos(mx, my, maxDistance)
     maxDistance = maxDistance or 100

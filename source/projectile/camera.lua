@@ -1,5 +1,4 @@
 local camera = {}
-
 camera.x, camera.y, camera.z = 8, 5, -12
 camera.yaw, camera.pitch = 0, -0.3
 camera.zoom = 1.6
@@ -11,8 +10,8 @@ camera.hw, camera.hh = 1000, 525
 camera.fovRad = 0
 camera.fovHalfTan = 0
 
-camera._forward = {x=0,y=0,z=0}
-camera._right = {x=0,y=0,z=0}
+camera._forward = {x=0, y=0, z=0}
+camera._right = {x=0, y=0, z=0}
 
 local sin, cos, tan, rad = math.sin, math.cos, math.tan, math.rad
 local clamp = require("source.utils").clamp
@@ -20,25 +19,30 @@ local clamp = require("source.utils").clamp
 function camera:updateProjectionConstants(w, h)
     w = w or love.graphics.getWidth()
     h = h or love.graphics.getHeight()
-
+    
     self.hw, self.hh = w * 0.5, h * 0.5
     self.aspect = w / h
     self.fovRad = rad(self.fov) / self.zoom
     self.fovHalfTan = tan(self.fovRad * 0.5)
+    self._f = 1 / self.fovHalfTan
 end
 
 function camera:rotate(dx, dy)
-    local sens = self.sensitivity
-    self.yaw = self.yaw - dx * sens
-    self.pitch = clamp(self.pitch - dy * sens, -1.56, 1.56)
+    local s = self.sensitivity
+    self.yaw = self.yaw - dx * s
+    self.pitch = clamp(self.pitch - dy * s, -1.56, 1.56)
 end
 
 function camera:getForward()
     local cp = cos(self.pitch)
+    local sp = sin(self.pitch)
+    local cy = cos(self.yaw)
+    local sy = sin(self.yaw)
+
     local f = self._forward
-    f.x = sin(self.yaw) * cp
-    f.y = -sin(self.pitch)
-    f.z = cos(self.yaw) * cp
+    f.x = sy * cp
+    f.y = -sp
+    f.z = cy * cp
     return f
 end
 
@@ -52,16 +56,12 @@ function camera:getRight()
 end
 
 function camera:project3D(x, y, z)
-    local dx = x - self.x
-    local dy = y - self.y
-    local dz = z - self.z
-
+    local dx, dy, dz = x - self.x, y - self.y, z - self.z
     local cy, sy = cos(self.yaw), sin(self.yaw)
     local cp, sp = cos(self.pitch), sin(self.pitch)
 
     local x1 = dx * cy - dz * sy
     local z1 = dx * sy + dz * cy
-
     local y1 = dy * cp - z1 * sp
     local z2 = dy * sp + z1 * cp
 
@@ -72,13 +72,8 @@ function camera:project3D(x, y, z)
 end
 
 function camera:isVisible(x, y, z, radius, renderDistanceSq)
-    local dx = x - self.x
-    local dz = z - self.z
-    local dist = dx*dx + dz*dz
-    if dist > renderDistanceSq then
-        return false
-    end
-    return true
+    local dx, dz = x - self.x, z - self.z
+    return (dx*dx + dz*dz) <= renderDistanceSq
 end
 
 function camera:getMVPMatrix()
@@ -106,7 +101,7 @@ function camera:getMVPMatrix()
         a * v11, a * v12, a * v13, 0,
         b * v21, b * v22, b * v23, 0,
         c * v11 - v31, c * v12 - v32, c * v13 - v33, -1,
-        d * v11 - tx,  d * v12 - ty,  d * v13 - tz,  0
+        d * v11 - tx,  d * v12 - ty,  d * v13 - tz, 0
     }
 end
 
