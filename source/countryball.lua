@@ -230,14 +230,7 @@ function countryball.draw(drawWithStencil, Inventory, itemModule)
     if not itemImg then return end
 
     local offsetX = countryball.flip and -0.5 or 0.5
-    drawWithStencil(
-        countryball.x + offsetX,
-        countryball.y + 0.2,
-        countryball.z + 0.1,
-        itemImg,
-        countryball.flip,
-        0.35
-    )
+    drawWithStencil(countryball.x + offsetX, countryball.y + 0.2, countryball.z + 0.1, itemImg, countryball.flip)
 end
 
 return countryball

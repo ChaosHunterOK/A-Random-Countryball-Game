@@ -71,6 +71,16 @@ function camera:project3D(x, y, z)
     return (x1 * inv / self.aspect) * self.hw + self.hw, (-y1 * inv) * self.hh + self.hh, z2
 end
 
+function camera:isVisible(x, y, z, radius, renderDistanceSq)
+    local dx = x - self.x
+    local dz = z - self.z
+    local dist = dx*dx + dz*dz
+    if dist > renderDistanceSq then
+        return false
+    end
+    return true
+end
+
 function camera:getMVPMatrix()
     local cy, sy = cos(self.yaw), sin(self.yaw)
     local cp, sp = cos(self.pitch), sin(self.pitch)

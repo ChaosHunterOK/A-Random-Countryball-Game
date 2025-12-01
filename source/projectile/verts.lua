@@ -37,19 +37,18 @@ local function gerstner(x, z)
 end
 
 local function buildMesh(vertices, uvOffset, vRepeat, texture, fallback)
-    local u, v = uvOffset.u or 0, uvOffset.v or 0
+    uvOffset = uvOffset or {u=0,v=0}
+    vRepeat = vRepeat or 1
     local verts = {
-        {vertices[1], vertices[2], 0+u, 0+v},
-        {vertices[3], vertices[4], 1+u, 0+v},
-        {vertices[5], vertices[6], 1+u, (vRepeat or 1)+v},
-        {vertices[7], vertices[8], 0+u, (vRepeat or 1)+v},
+        {vertices[1], vertices[2], 0+uvOffset.u, 0+uvOffset.v},
+        {vertices[3], vertices[4], 1+uvOffset.u, 0+uvOffset.v},
+        {vertices[5], vertices[6], 1+uvOffset.u, vRepeat+uvOffset.v},
+        {vertices[7], vertices[8], 0+uvOffset.u, vRepeat+uvOffset.v},
     }
     local mesh = lg.newMesh(verts, "fan", "static")
     local tex = texture or fallback
-    if tex then
-        if tex.setWrap then tex:setWrap("repeat","repeat") end
-        mesh:setTexture(tex)
-    end
+    if tex and tex.setWrap then tex:setWrap("repeat","repeat") end
+    if tex then mesh:setTexture(tex) end
     return mesh
 end
 
@@ -71,26 +70,31 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     camera:updateProjectionConstants()
     local camX, camZ = camera.x, camera.z
     local out, n = {}, 0
-    local uvU, uvV = 0, 0
+
+    local uvU, uvV = 0,0
     for _, w in ipairs(waves) do
         uvU = uvU + w.uvSpeed * w.dir[1]
         uvV = uvV + w.uvSpeed * w.dir[2]
     end
     uvU, uvV = (uvU*time)%1, (uvV*time)%1
 
-    local safeVert = function(v, water)
-        if water then
+    local function safeVert(v, water)
+        if water and v then
             local dy, dx, dz = gerstner(v[1], v[3])
             return v[1]+dx, v[2]+dy, v[3]+dz
-        else
+        elseif v then
             return v[1], v[2], v[3]
+        else
+            return 0,0,0
         end
     end
 
     for _, tile in ipairs(tiles) do
+        if not tile or not tile[1] then goto continue end
         local water = isWater(tile, materials)
         local uvOffset = water and {u=uvU,v=uvV} or {u=0,v=0}
         local topVerts, visible = {}, true
+
         for j=1,4 do
             local vx, vy, vz = safeVert(tile[j], water)
             local sx, sy = camera:project3D(vx, vy, vz)
@@ -110,6 +114,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
         local tx, tz = floor(tile[1][1]), floor(tile[1][3])
         local topY = tile.height or ((tile[1][2]+tile[2][2]+tile[3][2]+tile[4][2])*0.25)
+
         for _, off in ipairs(neighborOffsets) do
             local nb = tileGrid[tx+off.nx] and tileGrid[tx+off.nx][tz+off.nz]
             local nbHeight = nb and nb.height or 0
@@ -142,12 +147,14 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
                             uvOffset = {u=0,v=0},
                             isWater = false,
                             face = "side",
-                            vRepeat = max(1, topY-nbHeight)
+                            vRepeat = floor(max(1, topY-nbHeight))
                         }
                     end
                 end
             end
         end
+
+        ::continue::
     end
 
     table.sort(out, function(a,b) return a.dist>b.dist end)
