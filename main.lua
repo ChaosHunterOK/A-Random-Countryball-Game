@@ -30,8 +30,9 @@ local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
 local Mapsave = require(proj.."mapsave")
 local Particles = require(proj.."particles")
+local skyBox = require(proj.."skybox")
 
-local clamp, perlin = utils.clamp, utils.perlin
+local clamp, perlin, any = utils.clamp, utils.perlin, utils.any
 
 local particlesImgs = {
     smoke = lg.newImage("image/smoke.png")
@@ -107,7 +108,7 @@ local function getTileAt(x, z)
     local col = tileGrid[floor(x)]
     return col and col[floor(z)]
 end
-Props.spawnProps(22, 20, 20, getTileAt)
+Props.spawnProps(20, 20, 20, getTileAt)
 
 local function setSeed(seed)
     mapSeed = seed
@@ -138,100 +139,119 @@ function caveNoise3D(x, y, z, scale)
     return perlin(x * scale, y * scale, z * scale)
 end
 
-local function createBaseplate(width, depth)
+local function createBaseplate(width, depth, formatType)
+    formatType = formatType or "normal"
     local scale, biomeScale = 0.08, 0.05
     local topsoilDepth, maxSubDepth = 3, 25
     local cave3dScale, caveDepthScale, caveThreshold = 0.12, 0.4, 0.62
-    heights = {}
-    for x = 0, width do heights[x] = {} end
+    local nx, nz = width+1, depth+1
+    local totalPoints = nx * nz
+    local heights_buf = ffi.new("double[?]", totalPoints)
+
+    local function h_index(x, z) return x * nz + z end
+    local function set_h(x, z, v) heights_buf[h_index(x, z)] = v end
+    local function get_h(x, z) return heights_buf[h_index(x, z)] end
     local islands = {}
-    for i = 1, 3 do
-        islands[i] = {
-            cx = random(6, width-6),
-            cz = random(6, depth-6),
-            radius = random(3, 8),
-            height = random(2, 7)
-        }
-    end
-    local volcanoCenters = {}
-    local volcanoNoiseScale = 0.04
-    for z = 0, depth do
-        for x = 0, width do
-            local v = perlin(x * volcanoNoiseScale, z * volcanoNoiseScale)
-            if v > 0.94 then
-                table.insert(volcanoCenters, {x=x, z=z, strength=(v-0.94)*8})
+    if formatType == "flat" then
+        local flatHeight = 2
+        for z = 0, depth do
+            for x = 0, width do
+                set_h(x, z, flatHeight)
             end
         end
-    end
+    else
+        for i = 1, 3 do
+            islands[i] = {
+                cx = random(6, width-6),
+                cz = random(6, depth-6),
+                radius = random(3, 8),
+                height = random(2, 7)
+            }
+        end
 
-    for z = 0, depth do
-        local nz = z * scale
-        for x = 0, width do
-            local nx = x * scale
-            local h = perlin(nx, nz) * 7
-            local river = sin(x*0.25) * cos(z*0.25)
-            if river > -0.08 and river < 0.08 then h = h - 2.8 end
-            for _, isl in ipairs(islands) do
-                local dx, dz = x - isl.cx, z - isl.cz
-                local dist = sqrt(dx*dx + dz*dz)
-                if dist < isl.radius then
-                    h = h + isl.height * (1 - dist / isl.radius)
+        local volcanoCenters, vcIdx = {}, 0
+        local volcanoNoiseScale = 0.04
+        for z = 0, depth do
+            for x = 0, width do
+                local v = perlin(x*volcanoNoiseScale, z*volcanoNoiseScale)
+                if v > 0.94 then
+                    vcIdx = vcIdx + 1
+                    volcanoCenters[vcIdx] = {x=x, z=z, strength=(v-0.94)*8}
                 end
             end
-            local volcanoNoise = perlin(x*0.05, z*0.05)
-            if volcanoNoise > 0.95 then
-                h = h + 6 + (volcanoNoise-0.95)*10
-            end
-            local caveMask = perlin(x*0.09, z*0.09, 0)
-            if caveMask > 0.7 and h > 3 then
-                h = h - caveMask*2.5
-            end
+        end
+        for z = 0, depth do
+            for x = 0, width do
+                local h = perlin(x*scale, z*scale) * 7
+                local river = sin(x*0.25) * cos(z*0.25)
+                if river > -0.08 and river < 0.08 then h = h - 2.8 end
 
-            heights[x][z] = h
+                for _, isl in ipairs(islands) do
+                    local dx, dz = x-isl.cx, z-isl.cz
+                    local dist = sqrt(dx*dx + dz*dz)
+                    if dist < isl.radius then
+                        h = h + isl.height * (1 - dist/isl.radius)
+                    end
+                end
+
+                local volcanoNoise = perlin(x*0.05, z*0.05)
+                if volcanoNoise > 0.95 then
+                    h = h + 6 + (volcanoNoise-0.95)*10
+                end
+
+                local caveMask = perlin(x*0.09, z*0.09, 0)
+                if caveMask > 0.7 and h > 3 then h = h - caveMask*2.5 end
+
+                set_h(x, z, h)
+            end
         end
     end
 
-    baseplateTiles, tileGrid = {}, {}
+    baseplateTiles = {}
+    tileGrid = {}
     local idx = 1
     for z = 0, depth-1 do
         for x = 0, width-1 do
-            local h1, h2 = heights[x][z], heights[x+1][z]
-            local h3, h4 = heights[x+1][z+1], heights[x][z+1]
+            local h1, h2 = get_h(x, z), get_h(x+1, z)
+            local h3, h4 = get_h(x+1, z+1), get_h(x, z+1)
             local avgH = (h1+h2+h3+h4)*0.25
-
             local biomeNoise = perlin(x*biomeScale, z*biomeScale)
-            local tempNoise  = perlin(x*(biomeScale*0.6), z*(biomeScale*0.6)+200)
+            local tempNoise = perlin(x*(biomeScale*0.6), z*(biomeScale*0.6)+200)
             local humidNoise = perlin(x*(biomeScale*1.2)+400, z*(biomeScale*1.2)+400)
             local volcanicInfluence = perlin(x*0.04+1000, z*0.04+1000)
 
-            local tileTexture
+            local tileTextureEntry = materials.grassNormal
             if avgH < 0.6 then
-                tileTexture = materials.waterDeep
+                tileTextureEntry = materials.waterDeep
             elseif avgH < 1.8 then
-                tileTexture = materials.waterMedium
+                tileTextureEntry = materials.waterMedium
             elseif avgH < 3.6 then
-                if tempNoise < -0.2 then tileTexture = materials.sandGypsum
-                elseif biomeNoise < -0.2 then tileTexture = materials.sandGarnet
-                elseif biomeNoise > 0.45 then tileTexture = materials.sandOlivine
-                else tileTexture = materials.sandNormal
-                end
+                if tempNoise < -0.2 then tileTextureEntry = materials.sandGypsum
+                elseif biomeNoise < -0.2 then tileTextureEntry = materials.sandGarnet
+                elseif biomeNoise > 0.45 then tileTextureEntry = materials.sandOlivine
+                else tileTextureEntry = materials.sandNormal end
             elseif avgH < 6 then
-                tileTexture = tempNoise < -0.25 and materials.grassCold
-                    or (tempNoise > 0.4 and materials.grassHot or materials.grassNormal)
+                if tempNoise < -0.25 then tileTextureEntry = materials.grassCold
+                elseif tempNoise > 0.4 then tileTextureEntry = materials.grassHot
+                else tileTextureEntry = materials.grassNormal end
             elseif avgH < 9.5 then
-                local rockSelector = perlin(x*0.2, z*0.2)
-                tileTexture = rockSelector < -0.25 and materials.stone_dark
-                    or (rockSelector > 0.45 and materials.rhyolite or materials.stone)
+                local rockSel = perlin(x*0.2, z*0.2)
+                if rockSel < -0.25 then tileTextureEntry = materials.stone_dark
+                elseif rockSel > 0.45 then tileTextureEntry = materials.rhyolite
+                else tileTextureEntry = materials.stone end
             elseif avgH < 11 then
-                tileTexture = materials.granite
+                tileTextureEntry = materials.granite
             else
-                tileTexture = materials.snow
+                tileTextureEntry = materials.snow
             end
 
             if volcanicInfluence > 0.93 and avgH > 6 then
-                tileTexture = avgH > 10 and (perlin(x*0.2,z*0.2)>0.5 and materials.lava or materials.basalt) or materials.basalt
+                if avgH > 10 then
+                    tileTextureEntry = (perlin(x*0.2, z*0.2) > 0.5) and materials.lava or materials.basalt
+                else
+                    tileTextureEntry = materials.basalt
+                end
             end
-
             local subsurface = {}
             for depthY = 1, maxSubDepth do
                 local worldY = avgH - depthY
@@ -239,18 +259,22 @@ local function createBaseplate(width, depth)
                 if caveVal > caveThreshold and worldY < avgH-1 then
                     subsurface[depthY] = "air_cave"
                 else
-                    subsurface[depthY] = depthY <= topsoilDepth and (avgH<3.6 and "sandNormal" or "dirt") 
-                        or (volcanicInfluence>0.92 and "basalt" or "stone")
+                    if depthY <= topsoilDepth then
+                        subsurface[depthY] = (avgH < 3.6) and "sandNormal" or "dirt"
+                    else
+                        subsurface[depthY] = (volcanicInfluence > 0.92) and "basalt" or "stone"
+                    end
                 end
             end
             if subsurface[1] == "dirt" and subsurface[2] == "air_cave" then subsurface[1] = "air_cave" end
+
             local biome = determineBiome(avgH, tempNoise, humidNoise, volcanicInfluence)
 
             local tile = {
                 {x,h1,z},{x+1,h2,z},{x+1,h3,z+1},{x,h4,z+1},
-                x=x,z=z,y=avgH,height=avgH,curHeight=avgH,
-                biome=biome,texture=tileTexture,subsurface=subsurface,
-                containsCave=utils.any(subsurface,function(v) return v=="air_cave" end),
+                x=x, z=z, y=avgH, height=avgH, curHeight=avgH,
+                biome=biome, texture=tileTextureEntry, subsurface=subsurface,
+                containsCave=any(subsurface, function(v) return v=="air_cave" end),
                 isVolcano=(volcanicInfluence>0.92 and avgH>6),
                 heights={h1,h2,h3,h4}
             }
@@ -260,6 +284,14 @@ local function createBaseplate(width, depth)
             tileGrid[x][z] = tile
             idx = idx + 1
         end
+    end
+    heights = {}
+    for x = 0, width do
+        local col = {}
+        for z = 0, depth do
+            col[z] = get_h(x, z)
+        end
+        heights[x] = col
     end
 end
 
@@ -671,11 +703,15 @@ function getTileUnderCursor(mx, my, maxDistance)
         end
     end
 end
+
+skyBox.load()
+
 function drawTiles()
     camera_3d:updateProjectionConstants(base_width, base_height)
+    --skyBox.draw(1000)
     for i=1,#preloadedTiles do
         local t = preloadedTiles[i]
-        if t and t.mesh then
+        if t.mesh then
             lg.draw(t.mesh)
         end
     end
@@ -879,6 +915,12 @@ function love.keypressed(key)
             gamestate = prevGamestate or "menu"
             prevGamestate = nil
         end
+    end
+end
+
+function safeRelease(resource)
+    if resource and resource.release then
+        resource:release()
     end
 end
 

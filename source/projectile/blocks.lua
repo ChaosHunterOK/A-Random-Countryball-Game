@@ -1,3 +1,4 @@
+local ffi = require "ffi"
 local love = require "love"
 local lg = love.graphics
 local cos, sin = math.cos, math.sin
@@ -28,34 +29,33 @@ Blocks.currentBreaking = {
     max = 1,
 }
 
-local function makeCube(x, y, z, size, texture)
+local function makeCubeFaces(x, y, z, size, texture)
     local s = size / 2
-    local v = {
-        {x - s, y - s, z - s},
-        {x + s, y - s, z - s},
-        {x + s, y + s, z - s},
-        {x - s, y + s, z - s},
-        {x - s, y - s, z + s},
-        {x + s, y - s, z + s},
-        {x + s, y + s, z + s},
-        {x - s, y + s, z + s},
-    }
+    local v1 = {x - s, y - s, z - s}
+    local v2 = {x + s, y - s, z - s}
+    local v3 = {x + s, y + s, z - s}
+    local v4 = {x - s, y + s, z - s}
+    local v5 = {x - s, y - s, z + s}
+    local v6 = {x + s, y - s, z + s}
+    local v7 = {x + s, y + s, z + s}
+    local v8 = {x - s, y + s, z + s}
     return {
-        {v[1], v[2], v[3], v[4], texture},
-        {v[5], v[6], v[7], v[8], texture},
-        {v[1], v[5], v[8], v[4], texture},
-        {v[2], v[6], v[7], v[3], texture},
-        {v[4], v[3], v[7], v[8], texture},
-        {v[1], v[2], v[6], v[5], texture},
+        {v1, v2, v3, v4, texture},
+        {v5, v6, v7, v8, texture},
+        {v1, v5, v8, v4, texture},
+        {v2, v6, v7, v3, texture},
+        {v4, v3, v7, v8, texture},
+        {v1, v2, v6, v5, texture},
     }
 end
 
 local function getUnderlyingTile(x, z, baseTiles)
     if not baseTiles then return nil end
-    for _, tile in ipairs(baseTiles) do
+    for i = 1, #baseTiles do
+        local tile = baseTiles[i]
         local v1, v3 = tile[1], tile[3]
-        local minX, maxX = math.min(v1[1], v3[1]), math.max(v1[1], v3[1])
-        local minZ, maxZ = math.min(v1[3], v3[3]), math.max(v1[3], v3[3])
+        local minX, maxX = v1[1] < v3[1] and v1[1] or v3[1], v1[1] < v3[1] and v3[1] or v1[1]
+        local minZ, maxZ = v1[3] < v3[3] and v1[3] or v3[3], v1[3] < v3[3] and v3[3] or v1[3]
         if x >= minX and x <= maxX and z >= minZ and z <= maxZ then
             return tile
         end
@@ -64,42 +64,40 @@ local function getUnderlyingTile(x, z, baseTiles)
 end
 
 function Blocks.generate(camera, renderDistanceSq)
-    if not Blocks.placed then
-        Blocks.placed = {}
-    end
+    Blocks.placed = Blocks.placed or {}
     camera:updateProjectionConstants()
     local camX, camZ = camera.x, camera.z
 
     local entries = {}
     local count = 0
 
-    for _, block in ipairs(Blocks.placed) do
-        local cubeFaces = makeCube(block.x, block.y, block.z, 1, Blocks.materials[block.type])
+    for bi = 1, #Blocks.placed do
+        local block = Blocks.placed[bi]
+        local cubeFaces = makeCubeFaces(block.x, block.y, block.z, 1, Blocks.materials[block.type])
         local baseTile = getUnderlyingTile(block.x, block.z, Blocks.baseTiles)
-        local blendColor = {1, 1, 1}
+        local blendR, blendG, blendB = 1,1,1
 
         if baseTile and baseTile.texture and baseTile.texture.getFilename then
             local ok, name = pcall(function() return baseTile.texture:getFilename():lower() end)
             if ok and name then
                 if name:find("stone") then
-                    blendColor = {0.85, 0.85, 0.9}
+                    blendR, blendG, blendB = 0.85, 0.85, 0.9
                 elseif name:find("sand") then
-                    blendColor = {1.0, 0.95, 0.85}
+                    blendR, blendG, blendB = 1.0, 0.95, 0.85
                 elseif name:find("grass") then
-                    blendColor = {0.9, 1.0, 0.9}
+                    blendR, blendG, blendB = 0.9, 1.0, 0.9
                 end
             end
         end
 
-        for _, face in ipairs(cubeFaces) do
-            local verts, visible = {}, true
+        for fi = 1, #cubeFaces do
+            local face = cubeFaces[fi]
+            local verts = {}
+            local visible = true
             for i = 1, 4 do
                 local v = face[i]
-                local sx, sy2, z2 = camera:project3D(v[1], v[2], v[3])
-                if not sx then
-                    visible = false
-                    break
-                end
+                local sx, sy2 = camera:project3D(v[1], v[2], v[3])
+                if not sx then visible = false; break end
                 verts[i*2-1], verts[i*2] = sx, sy2
             end
 
@@ -114,7 +112,7 @@ function Blocks.generate(camera, renderDistanceSq)
                         verts = verts,
                         dist = distSq,
                         texture = face[5],
-                        color = { blendColor[1], blendColor[2], blendColor[3] }
+                        color = { blendR, blendG, blendB }
                     }
                 end
             end
@@ -135,12 +133,13 @@ local function makeVertsMeshFromVerts(verts)
 end
 
 function Blocks.ensureAllMeshes(tbl)
-    for _, t in ipairs(tbl) do
+    for i = 1, #tbl do
+        local t = tbl[i]
         if t and t.verts and not t.mesh then
             t.vertsMesh = makeVertsMeshFromVerts(t.verts)
             t.mesh = lg.newMesh(t.vertsMesh, "fan", "static")
             if t.texture then
-                t.texture:setWrap("repeat","repeat")
+                pcall(function() t.texture:setWrap("repeat","repeat") end)
                 t.mesh:setTexture(t.texture)
             end
         elseif t and t.mesh and t.texture then
@@ -151,7 +150,8 @@ function Blocks.ensureAllMeshes(tbl)
 end
 
 function Blocks.draw(entries)
-    for _, e in ipairs(entries) do
+    for i = 1, #entries do
+        local e = entries[i]
         lg.setColor(e.color or {1,1,1})
         if e.mesh then
             lg.draw(e.mesh)
@@ -185,7 +185,8 @@ function Blocks.raycast(camera, mx, my, maxDistance)
         local rz = camera.z + dirZ * d
         lastEmpty.x, lastEmpty.y, lastEmpty.z = rx, ry, rz
 
-        for _, block in ipairs(Blocks.placed) do
+        for i = 1, #Blocks.placed do
+            local block = Blocks.placed[i]
             local bx, by, bz = block.x, block.y, block.z
 
             if math.abs(rx - bx) <= 0.5
@@ -221,12 +222,12 @@ function Blocks.getPlacementPosition(hitBlock, normal)
 end
 
 function Blocks.place(x, y, z, blockType)
-    table.insert(Blocks.placed, {
+    Blocks.placed[#Blocks.placed+1] = {
         x = floor(x),
         y = floor(y),
         z = floor(z),
         type = blockType
-    })
+    }
 end
 
 function Blocks.load(materials)

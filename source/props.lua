@@ -20,6 +20,12 @@ local propTypes = {
     {img = lg.newImage("image/porphyry_rock.png"), maxHealth = 25, canBreak = true, name = "Porphyry Rock"},
     {img = lg.newImage("image/dark_rock.png"), maxHealth = 25, canBreak = true, name = "Dark Rock"},
     {img = lg.newImage("image/pumice_rock.png"), maxHealth = 25, canBreak = true, name = "Pumice Rock"},
+    {img = lg.newImage("image/ore_type/flint.png"), maxHealth = 32, canBreak = true, name = "Flint Ore"},
+    {img = lg.newImage("image/ore_type/amorphous.png"), maxHealth = 34, canBreak = true, name = "Amorphous Ore"},
+    {img = lg.newImage("image/ore_type/anthracite_coal.png"), maxHealth = 30, canBreak = true, name = "Anthracite Ore"},
+    {img = lg.newImage("image/ore_type/bituminous_coal.png"), maxHealth = 30, canBreak = true, name = "Bituminous Ore"},
+    {img = lg.newImage("image/ore_type/lignite_coal.png"), maxHealth = 30, canBreak = true, name = "Lignite Ore"},
+    {img = lg.newImage("image/ore_type/ruby.png"), maxHealth = 35, canBreak = true, name = "Ruby Ore"},
 }
 for i=1, #propTypes do
     local t = propTypes[i]
@@ -48,7 +54,7 @@ local function spawnProps(num, mapWidth, mapDepth)
     end
 end
 
-local function updateProps(dt, heights)
+local function updateProps(dt)
     for _, prop in ipairs(props) do
         --[[prop.velocityY = (prop.velocityY or 0) + gravity * dt
         prop.y = prop.y + prop.velocityY * dt
@@ -74,11 +80,11 @@ local function drawProps(drawWithStencil)
     local cx, cz = countryball.x, countryball.z
     for i = 1, #props do
         local prop = props[i]
-        drawWithStencil(prop.x, prop.y, prop.z, prop.img, false)
+        drawWithStencil(prop.x, prop.y -0.04, prop.z, prop.img, false)
         local dx = prop.x - cx
         local dz = prop.z - cz
         local distSq = dx*dx + dz*dz
-        if distSq < 9 then
+        if distSq < 9 and not props.canBreak then
             local sx, sy2, z2 = camera_3d:project3D(prop.x, prop.y, prop.z)
             if sx then
                 local scale = (1 / z2) * 6
@@ -155,32 +161,48 @@ local function handleMousePressed(mx, my)
             end
             if prop.health <= 0 then
                 if tIndex == 1 then
-                    for j = 1, random(2, 5) do
-                        ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.3,prop.z + (random() - 0.5) * 0.5,"oak")
+                    if prop.img == propTypes[1].img then
+                        prop.img = lg.newImage("image/tree_cut.png")
+                        prop.health = 5
+                        prop.maxHealth = 5
+                        prop.w, prop.h = prop.img:getWidth(), prop.img:getHeight()
+                        for j = 1, random(2, 6) do
+                            ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random() * 0.3,prop.z + (random() - 0.5) * 0.5, "oak")
+                        end
+                    else
+                        for j = 1, random(1, 3) do
+                            ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random() * 0.3,prop.z + (random() - 0.5) * 0.5, "oak")
+                        end
+                        table.remove(props, i)
                     end
                 elseif tIndex == 2 then
                     for j = 1, random(2, 4) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"stone")
                     end
+                    table.remove(props, i)
                 elseif tIndex == 4 then
                     for j = 1, random(3, 6) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"leaf")
                     end
+                    table.remove(props, i)
                 elseif tIndex == 5 then
                     for j = 1, random(2, 4) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"porphyry")
                     end
+                    table.remove(props, i)
                 elseif tIndex == 6 then
                     for j = 1, random(2, 4) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"dark_stone")
                     end
+                    table.remove(props, i)
                 elseif tIndex == 7 then
                     for j = 1, random(2, 4) do
                         ItemsModule.dropItem(prop.x + (random() - 0.5) * 0.5,prop.y + 0.75 + random()*0.2,prop.z + (random() - 0.5) * 0.5,"pumice")
                     end
+                    table.remove(props, i)
                 end
 
-                table.remove(props, i)
+                --table.remove(props, i)
             end
         end
 

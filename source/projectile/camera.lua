@@ -65,7 +65,7 @@ function camera:project3D(x, y, z)
     local y1 = dy * cp - z1 * sp
     local z2 = dy * sp + z1 * cp
 
-    if z2 <= 0.01 then return nil end
+    z2 = math.max(z2, 0.01)
 
     local inv = 1 / (z2 * self.fovHalfTan)
     return (x1 * inv / self.aspect) * self.hw + self.hw, (-y1 * inv) * self.hh + self.hh, z2

@@ -1,3 +1,4 @@
+local ffi = require "ffi"
 local love = require "love"
 local lg = love.graphics
 local m = math
@@ -6,13 +7,14 @@ local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floo
 local Verts = {}
 local time = 0
 
-local waves = {
+local waveDefs = {
     {dir={1,0.3}, amplitude=0.12, wavelength=6, speed=1.2, steepness=0.9, uvSpeed=0.08},
     {dir={0.6,0.8}, amplitude=0.08, wavelength=3.5, speed=1.6, steepness=0.6, uvSpeed=0.12},
     {dir={0.2,-1}, amplitude=0.04, wavelength=1.8, speed=2.4, steepness=0.45, uvSpeed=0.18},
 }
 
-for _, w in ipairs(waves) do
+for i = 1, #waveDefs do
+    local w = waveDefs[i]
     local dx, dz = w.dir[1], w.dir[2]
     local len = sqrt(dx*dx + dz*dz)
     if len > 0 then
@@ -21,17 +23,38 @@ for _, w in ipairs(waves) do
     w.k = 2 * pi / w.wavelength
 end
 
+local WN = #waveDefs
+
+ffi.cdef[[
+typedef struct { double dirx, dirz, amplitude, k, speed, steepness, uvSpeed; } Wave;
+]]
+local waves_ffi = ffi.new("Wave[?]", WN)
+for i = 0, WN-1 do
+    local w = waveDefs[i+1]
+    waves_ffi[i].dirx = w.dir[1]
+    waves_ffi[i].dirz = w.dir[2]
+    waves_ffi[i].amplitude = w.amplitude
+    waves_ffi[i].k = w.k
+    waves_ffi[i].speed = w.speed
+    waves_ffi[i].steepness = w.steepness
+    waves_ffi[i].uvSpeed = w.uvSpeed
+end
+
+local projBuf = ffi.new("double[8]")
+local tmpVerts = ffi.new("double[12]")
+
 function Verts.setTime(t) time = t or 0 end
 
-local function gerstner(x, z)
-    local y, ox, oz = 0, 0, 0
-    for _, w in ipairs(waves) do
-        local phase = w.k * (w.dir[1]*x + w.dir[2]*z) - w.speed * time
+local function gerstner_f(x, z)
+    local y, ox, oz = 0.0, 0.0, 0.0
+    for i = 0, WN-1 do
+        local w = waves_ffi[i]
+        local phase = w.k * (w.dirx * x + w.dirz * z) - w.speed * time
         local s, c = sin(phase), cos(phase)
         local a = w.steepness * w.amplitude
-        y  = y + w.amplitude * s
-        ox = ox + a * w.dir[1] * c
-        oz = oz + a * w.dir[2] * c
+        y = y + w.amplitude * s
+        ox = ox + a * w.dirx * c
+        oz = oz + a * w.dirz * c
     end
     return y, ox, oz
 end
@@ -65,89 +88,107 @@ local neighborOffsets = {
     {nx=-1,nz=0,i1=1,i2=4},
 }
 
+local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
+    local sx, sy = camera:project3D(v1[1], v1[2], v1[3])
+    if not sx then return false end; buf[0], buf[1] = sx, sy
+    sx, sy = camera:project3D(v2[1], v2[2], v2[3])
+    if not sx then return false end; buf[2], buf[3] = sx, sy
+    sx, sy = camera:project3D(v3[1], v3[2], v3[3])
+    if not sx then return false end; buf[4], buf[5] = sx, sy
+    sx, sy = camera:project3D(v4[1], v4[2], v4[3])
+    if not sx then return false end; buf[6], buf[7] = sx, sy
+    return true
+end
+
+local function projBufToLuaArray(buf)
+    return {buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7]}
+end
+
+local outBuf = {}
+
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end
     camera:updateProjectionConstants()
     local camX, camZ = camera.x, camera.z
-    local out, n = {}, 0
-
-    local uvU, uvV = 0,0
-    for _, w in ipairs(waves) do
-        uvU = uvU + w.uvSpeed * w.dir[1]
-        uvV = uvV + w.uvSpeed * w.dir[2]
+    local uvU, uvV = 0.0, 0.0
+    for i = 0, WN-1 do
+        local w = waves_ffi[i]
+        uvU = uvU + w.uvSpeed * w.dirx
+        uvV = uvV + w.uvSpeed * w.dirz
     end
-    uvU, uvV = (uvU*time)%1, (uvV*time)%1
+    uvU, uvV = (uvU * time) % 1.0, (uvV * time) % 1.0
 
-    local function safeVert(v, water)
-        if water and v then
-            local dy, dx, dz = gerstner(v[1], v[3])
-            return v[1]+dx, v[2]+dy, v[3]+dz
-        elseif v then
-            return v[1], v[2], v[3]
-        else
-            return 0,0,0
-        end
-    end
+    outBuf = {}
 
-    for _, tile in ipairs(tiles) do
+    for t = 1, #tiles do
+        local tile = tiles[t]
         if not tile or not tile[1] then goto continue end
-        local water = isWater(tile, materials)
-        local uvOffset = water and {u=uvU,v=uvV} or {u=0,v=0}
-        local topVerts, visible = {}, true
 
-        for j=1,4 do
-            local vx, vy, vz = safeVert(tile[j], water)
-            local sx, sy = camera:project3D(vx, vy, vz)
-            if not sx then visible=false; break end
-            topVerts[(j-1)*2+1] = sx
-            topVerts[(j-1)*2+2] = sy
+        local water = isWater(tile, materials)
+        local uvOffset = water and {u=uvU, v=uvV} or {u=0, v=0}
+
+        local v1x,v1y,v1z = tile[1][1], tile[1][2], tile[1][3]
+        local v2x,v2y,v2z = tile[2][1], tile[2][2], tile[2][3]
+        local v3x,v3y,v3z = tile[3][1], tile[3][2], tile[3][3]
+        local v4x,v4y,v4z = tile[4][1], tile[4][2], tile[4][3]
+
+        if water then
+            local dy, dx, dz
+            dy, dx, dz = gerstner_f(v1x, v1z); v1y=v1y+dy; v1x=v1x+dx; v1z=v1z+dz
+            dy, dx, dz = gerstner_f(v2x, v2z); v2y=v2y+dy; v2x=v2x+dx; v2z=v2z+dz
+            dy, dx, dz = gerstner_f(v3x, v3z); v3y=v3y+dy; v3x=v3x+dx; v3z=v3z+dz
+            dy, dx, dz = gerstner_f(v4x, v4z); v4y=v4y+dy; v4x=v4x+dx; v4z=v4z+dz
         end
 
+        local v1t,v2t,v3t,v4t = {v1x,v1y,v1z},{v2x,v2y,v2z},{v3x,v3y,v3z},{v4x,v4y,v4z}
+
+        local visible = projectQuadToBuf(camera, v1t,v2t,v3t,v4t,projBuf)
         if visible then
-            local cx = (tile[1][1]+tile[3][1])*0.5 - camX
-            local cz = (tile[1][3]+tile[3][3])*0.5 - camZ
-            if (cx*cx + cz*cz) <= renderDistanceSq then
-                n=n+1
-                out[n]={verts=topVerts, dist=cx*cx+cz*cz, texture=tile.texture, tile=tile, uvOffset=uvOffset, isWater=water, face="top"}
+            local cx, cz = (tile[1][1]+tile[3][1])*0.5-camX, (tile[1][3]+tile[3][3])*0.5-camZ
+            if (cx*cx+cz*cz) <= renderDistanceSq then
+                outBuf[#outBuf+1] = {
+                    verts = projBufToLuaArray(projBuf),
+                    dist = cx*cx+cz*cz,
+                    texture = tile.texture,
+                    tile = tile,
+                    uvOffset = uvOffset,
+                    isWater = water,
+                    face = "top"
+                }
             end
         end
 
         local tx, tz = floor(tile[1][1]), floor(tile[1][3])
         local topY = tile.height or ((tile[1][2]+tile[2][2]+tile[3][2]+tile[4][2])*0.25)
 
-        for _, off in ipairs(neighborOffsets) do
-            local nb = tileGrid[tx+off.nx] and tileGrid[tx+off.nx][tz+off.nz]
+        for oi=1,4 do
+            local off = neighborOffsets[oi]
+            local nbRow = tileGrid[tx + off.nx]
+            local nb = nbRow and nbRow[tz + off.nz]
             local nbHeight = nb and nb.height or 0
             if not nb or (topY - nbHeight > 1) then
-                local v1x,v1y,v1z = safeVert(tile[off.i1], water)
-                local v2x,v2y,v2z = safeVert(tile[off.i2], water)
-                local h = nbHeight
-                local sideVerts3D = {
-                    {v1x,v1y,v1z},{v2x,v2y,v2z},{v2x,h,v2z},{v1x,h,v1z}
-                }
-
-                local sideVerts2D, sideVisible = {}, true
-                for j=1,4 do
-                    local sx, sy = camera:project3D(sideVerts3D[j][1], sideVerts3D[j][2], sideVerts3D[j][3])
-                    if not sx then sideVisible=false; break end
-                    sideVerts2D[(j-1)*2+1] = sx
-                    sideVerts2D[(j-1)*2+2] = sy
+                local v1s,v2s = tile[off.i1], tile[off.i2]
+                local v1x_s,v1y_s,v1z_s = v1s[1],v1s[2],v1s[3]
+                local v2x_s,v2y_s,v2z_s = v2s[1],v2s[2],v2s[3]
+                if water then
+                    local dy, dx, dz
+                    dy, dx, dz = gerstner_f(v1x_s,v1z_s); v1y_s=v1y_s+dy; v1x_s=v1x_s+dx; v1z_s=v1z_s+dz
+                    dy, dx, dz = gerstner_f(v2x_s,v2z_s); v2y_s=v2y_s+dy; v2x_s=v2x_s+dx; v2z_s=v2z_s+dz
                 end
-
+                local s1,s2,s3,s4 = {v1x_s,v1y_s,v1z_s},{v2x_s,v2y_s,v2z_s},{v2x_s,nbHeight,v2z_s},{v1x_s,nbHeight,v1z_s}
+                local sideVisible = projectQuadToBuf(camera,s1,s2,s3,s4,projBuf)
                 if sideVisible then
-                    local midx = (v1x+v2x)*0.5 - camX
-                    local midz = (v1z+v2z)*0.5 - camZ
-                    if (midx*midx + midz*midz) <= renderDistanceSq then
-                        n=n+1
-                        out[n] = {
-                            verts = sideVerts2D,
+                    local midx, midz = (v1x_s+v2x_s)*0.5-camX, (v1z_s+v2z_s)*0.5-camZ
+                    if (midx*midx+midz*midz) <= renderDistanceSq then
+                        outBuf[#outBuf+1] = {
+                            verts = projBufToLuaArray(projBuf),
                             dist = midx*midx+midz*midz,
                             texture = tile.texture,
                             tile = tile,
                             uvOffset = {u=0,v=0},
                             isWater = false,
                             face = "side",
-                            vRepeat = floor(max(1, topY-nbHeight))
+                            vRepeat = floor(max(1,topY-nbHeight))
                         }
                     end
                 end
@@ -157,14 +198,16 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         ::continue::
     end
 
-    table.sort(out, function(a,b) return a.dist>b.dist end)
-    return out
+    table.sort(outBuf, function(a,b) return a.dist>b.dist end)
+    return outBuf
 end
 
 function Verts.ensureAllMeshes(tiles, fallback)
-    for _, t in ipairs(tiles or {}) do
+    for i=1,#tiles do
+        local t = tiles[i]
         if t and t.verts then
-            t.mesh = buildMesh(t.verts, t.uvOffset or {u=0,v=0}, t.vRepeat or 1, t.texture, fallback)
+            local tex = t.texture or nil
+            t.mesh = buildMesh(t.verts, t.uvOffset or {u=0,v=0}, t.vRepeat or 1, tex, fallback)
         end
     end
 end
