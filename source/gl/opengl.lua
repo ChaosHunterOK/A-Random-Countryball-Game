@@ -14,6 +14,7 @@ if ffi then
         typedef float GLfloat;
         typedef double GLdouble;
         typedef unsigned char GLubyte;
+        typedef ptrdiff_t GLsizeiptr;
 
         void glEnable(GLenum cap);
         void glDisable(GLenum cap);
@@ -41,23 +42,21 @@ if ffi then
         void glGenTextures(GLsizei n, GLuint *textures);
         void glBindTexture(GLenum target, GLuint texture);
         void glTexParameteri(GLenum target, GLenum pname, GLint param);
-        void glTexImage2D(GLenum target, GLint level, GLint internalformat,
-                          GLsizei width, GLsizei height, GLint border,
-                          GLenum format, GLenum type, const GLvoid *pixels);
+        void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
         void glDeleteTextures(GLsizei n, const GLuint *textures);
         void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
 
         void glGenBuffers(GLsizei n, GLuint *buffers);
         void glBindBuffer(GLenum target, GLuint buffer);
-        void glBufferData(GLenum target, GLsizei size, const GLvoid *data, GLenum usage);
+        void glBufferData(GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage);
         void glDeleteBuffers(GLsizei n, const GLuint *buffers);
+
+        void glGenVertexArrays(GLsizei n, GLuint *arrays);
+        void glBindVertexArray(GLuint array);
 
         void glEnableVertexAttribArray(GLuint index);
         void glDisableVertexAttribArray(GLuint index);
         void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer);
-
-        void glGenVertexArrays(GLsizei n, GLuint *arrays);
-        void glBindVertexArray(GLuint array);
 
         void glCullFace(GLenum mode);
         void glFrontFace(GLenum mode);

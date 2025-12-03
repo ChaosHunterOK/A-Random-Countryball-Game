@@ -1,5 +1,6 @@
 local ffi = require "ffi"
 local love = require "love"
+local gl = require "source.gl.opengl"
 local lg = love.graphics
 local m = math
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
@@ -13,14 +14,11 @@ local waveDefs = {
     {dir={0.2,-1}, amplitude=0.04, wavelength=1.8, speed=2.4, steepness=0.45, uvSpeed=0.18},
 }
 
-for i = 1, #waveDefs do
-    local w = waveDefs[i]
-    local dx, dz = w.dir[1], w.dir[2]
+for i,w in ipairs(waveDefs) do
+    local dx,dz = w.dir[1], w.dir[2]
     local len = sqrt(dx*dx + dz*dz)
-    if len > 0 then
-        w.dir[1], w.dir[2] = dx / len, dz / len
-    end
-    w.k = 2 * pi / w.wavelength
+    if len>0 then w.dir[1],w.dir[2] = dx/len, dz/len end
+    w.k = 2*pi / w.wavelength
 end
 
 local WN = #waveDefs
@@ -105,6 +103,10 @@ local function projBufToLuaArray(buf)
 end
 
 local outBuf = {}
+
+Verts.vbo = ffi.new("GLuint[1]")
+Verts.ebo = ffi.new("GLuint[1]")
+Verts.vao = ffi.new("GLuint[1]")
 
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end

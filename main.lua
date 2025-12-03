@@ -1,5 +1,7 @@
 local love, lg = require("love"), love.graphics
 local ffi = require("ffi")
+local glmod = require("source.gl.opengl")
+local gl, GL = glmod.gl, glmod.GL
 
 lg.setDefaultFilter("nearest", "nearest")
 lg.setDepthMode("lequal", true)
@@ -799,7 +801,7 @@ function love.draw()
 end
 
 function love.load()
-    love.window.setMode(base_width, base_height, {resizable=false, vsync=true})
+    love.window.setMode(base_width, base_height, {resizable=false, vsync=true, depth = 24, stencil = 8, msaa = 0, highdpi = false})
     love.window.setTitle("A Random Countryball Game")
     love.window.setIcon(love.image.newImageData("icon/icon.png"))
     local loadedTiles, loadedGrid, loadedPlacedBlocks = Mapsave.load(materials)
@@ -818,6 +820,11 @@ function love.load()
 
     music = love.audio.newSource("music/music.mp3", "stream")
     music:setLooping(true)
+
+    gl.glEnable(GL.DEPTH_TEST)
+    gl.glEnable(GL.CULL_FACE)
+    gl.glCullFace(GL.BACK)
+    gl.glFrontFace(GL.CCW)
 
     updateTileMeshes(true)
     lg.setDepthMode("lequal", true)
