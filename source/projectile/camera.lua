@@ -6,7 +6,7 @@ camera.sensitivity = 0.002
 camera.fov = 70
 camera.aspect = 1
 camera.smoothness = 5.0
-camera.hw, camera.hh = 1000, 525
+camera.hw, camera.hh = 500, 262
 camera.fovRad = 0
 camera.fovHalfTan = 0
 
@@ -16,21 +16,16 @@ camera._right = {x=0, y=0, z=0}
 local sin, cos, tan, rad = math.sin, math.cos, math.tan, math.rad
 local clamp = require("source.utils").clamp
 
+local base_width, base_height = 1000, 525
+
 function camera:updateProjectionConstants(w, h)
-    w = w or love.graphics.getWidth()
-    h = h or love.graphics.getHeight()
-    
+    w = w or base_width
+    h = h or base_height
     self.hw, self.hh = w * 0.5, h * 0.5
     self.aspect = w / h
     self.fovRad = rad(self.fov) / self.zoom
     self.fovHalfTan = tan(self.fovRad * 0.5)
     self._f = 1 / self.fovHalfTan
-end
-
-function camera:rotate(dx, dy)
-    local s = self.sensitivity
-    self.yaw = self.yaw - dx * s
-    self.pitch = clamp(self.pitch - dy * s, -1.56, 1.56)
 end
 
 function camera:getForward()
@@ -47,12 +42,12 @@ function camera:getForward()
 end
 
 function camera:getRight()
-    local r = self._right
-    local yaw90 = self.yaw - 1.57079632679
-    r.x = sin(yaw90)
-    r.y = 0
-    r.z = cos(yaw90)
-    return r
+    local f = self:getForward()
+    return {
+        x = -f.z,
+        y = 0,
+        z = f.x
+    }
 end
 
 function camera:project3D(x, y, z)
@@ -69,11 +64,6 @@ function camera:project3D(x, y, z)
 
     local inv = 1 / (z2 * self.fovHalfTan)
     return (x1 * inv / self.aspect) * self.hw + self.hw, (-y1 * inv) * self.hh + self.hh, z2
-end
-
-function camera:isVisible(x, y, z, radius, renderDistanceSq)
-    local dx, dz = x - self.x, z - self.z
-    return (dx*dx + dz*dz) <= renderDistanceSq
 end
 
 function camera:getMVPMatrix()

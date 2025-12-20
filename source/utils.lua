@@ -3,9 +3,16 @@ local utils = {}
 
 local floor, sqrt, max, min, abs = math.floor, math.sqrt, math.max, math.min, math.abs
 local random = math.random
+local sharpTextShader = love.graphics.newShader("shaders/text_unblur.glsl")
+sharpTextShader:send("threshold", 0.5)
+sharpTextShader:send("tintColor", {1, 1, 1, 1})
 
 function utils.clamp(v, a, b)
     return v < a and a or (v > b and b or v)
+end
+
+function utils.clamp01(x)
+    return x < 0 and 0 or (x > 1 and 1 or x)
 end
 
 local bit = require("bit")
@@ -54,8 +61,32 @@ function utils.perlin(x, z, octaves, lacunarity, persistence)
     return total / maxA
 end
 
+local noiseCache = {}
+
+function utils.fastPerlin(x, z, octaves, lacunarity, persistence)
+    if x == nil or z == nil then
+        error("fastPerlin: one of the arguments is nil: x="..tostring(x).." z="..tostring(z))
+    end
+    local k = x .. "_" .. z .. "_" .. (octaves or "") .. "_" .. (lacunarity or "") .. "_" .. (persistence or "")
+    local v = noiseCache[k]
+    if v ~= nil then return v end
+    v = utils.perlin(x, z, octaves, lacunarity, persistence)
+    noiseCache[k] = v
+    return v
+end
+
+function utils.clearNoiseCache()
+    noiseCache = {}
+end
+
 function utils.randomRange(a, b)
     return random() * (b - a) + a
+end
+
+function utils.drawSharpText(text, x, y)
+    love.graphics.setShader(sharpTextShader)
+    love.graphics.print(text, x, y)
+    love.graphics.setShader()
 end
 
 function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textColor)
@@ -64,14 +95,16 @@ function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textCol
     borderColor = borderColor or {0,0,0,1}
     textColor = textColor or {1,1,1,1}
 
+    lg.setShader(sharpTextShader)
     lg.setColor(borderColor)
     lg.printf(text, x - 1, y - 1, limit, align)
     lg.printf(text, x + 1, y - 1, limit, align)
     lg.printf(text, x - 1, y + 1, limit, align)
     lg.printf(text, x + 1, y + 1, limit, align)
-
     lg.setColor(textColor)
     lg.printf(text, x, y, limit, align)
+
+    lg.setShader()
 end
 
 function utils.hsvToRgb(h, s, v)
@@ -105,6 +138,20 @@ function utils.any(t, func)
         end
     end
     return false
+end
+
+function utils.normalize(vx, vy, vz)
+    local l = sqrt(vx*vx + vy*vy + vz*vz)
+    if l == 0 then return 0,1,0 end
+    return vx/l, vy/l, vz/l
+end
+
+function utils.toByte(v, gamma)
+    v = utils.clamp01(v)
+    if gamma then
+        v = v^(1/gamma)
+    end
+    return floor(v * 255 + 0.5)
 end
 
 return utils

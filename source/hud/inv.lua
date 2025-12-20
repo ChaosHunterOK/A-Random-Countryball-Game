@@ -119,7 +119,7 @@ function Inventory:draw(itemTypes)
         local mx, my = love.mouse.getPosition()
         lg.setColor(1,1,1,1)
         lg.draw(itemTypes[self.heldItem].img, mx - 16*scale, my - 16*scale, 0, scale, scale)
-        lg.print(self.heldCount, mx + 12*scale, my + 12*scale)
+        utils.drawTextWithBorder(self.heldCount, mx + 12*scale, my + 12*scale)
     end
 end
 

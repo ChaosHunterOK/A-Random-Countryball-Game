@@ -64,21 +64,6 @@ local function getFrames(animImages, animName, dt, state)
     return frames[state.frameIndex]
 end
 
-local images = {
-    idle = {
-        lg.newImage("image/countryball/senegal/idle1.png"),
-        lg.newImage("image/countryball/senegal/idle2.png"),
-    },
-    walk = {
-        lg.newImage("image/countryball/senegal/walk1.png"),
-        lg.newImage("image/countryball/senegal/walk2.png"),
-        lg.newImage("image/countryball/senegal/walk3.png"),
-        lg.newImage("image/countryball/senegal/walk4.png"),
-        lg.newImage("image/countryball/senegal/walk5.png"),
-    },
-    damage = lg.newImage("image/countryball/senegal/damage.png"),
-}
-
 function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks, camera)
     local dx, dz = 0, 0
     local moveX, moveZ = 0, 0
@@ -207,11 +192,11 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
     if countryball.shakeTime > 0 then
         countryball.shakeTime = countryball.shakeTime - dt
     end
-    countryball.currentFrame = getFrames(images, countryball.animation, dt, countryball)
+    countryball.currentFrame = getFrames(countryball.images, countryball.animation, dt, countryball)
 end
 
 function countryball.draw(drawWithStencil, Inventory, itemModule)
-    local img = countryball.currentFrame or images.idle[1]
+    local img = countryball.currentFrame or countryball.images.idle[1]
     if not img then return end
 
     local shakeX, shakeZ = 0, 0
@@ -231,6 +216,16 @@ function countryball.draw(drawWithStencil, Inventory, itemModule)
 
     local offsetX = countryball.flip and -0.5 or 0.5
     drawWithStencil(countryball.x + offsetX, countryball.y + 0.2, countryball.z + 0.1, itemImg, countryball.flip)
+end
+
+function countryball.viewDraw(x, y, flip, size)
+    x = x or 0
+    y = y or 0
+    flip = flip or 1
+    size = size or 1
+    local img = countryball.images.idle[1]
+    if not img then return end
+    lg.draw(img, x, y, 0, flip * size, size)
 end
 
 return countryball

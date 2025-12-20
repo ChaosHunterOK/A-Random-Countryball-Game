@@ -1,5 +1,6 @@
 local ffi = require "ffi"
 local love = require "love"
+local utils = require("source.utils")
 local lg = love.graphics
 local cos, sin = math.cos, math.sin
 local floor = math.floor
@@ -7,6 +8,16 @@ local Blocks = {}
 Blocks.placed = {}
 Blocks.materials = {}
 Blocks.baseTiles = nil
+
+local MAX_QUADS = 12000
+local VERTS_PER_QUAD = 4
+local meshFormat = {
+    {"VertexPosition", "float", 2},
+    {"VertexTexCoord", "float", 2},
+    {"VertexColor", "byte", 4}
+}
+
+local clamp01 = utils.clamp01
 
 Blocks.durabilities = {
     dirt = 2,
@@ -21,6 +32,21 @@ Blocks.durabilities = {
     pumice = 4,
     oak = 2,
     lava = 9999
+}
+
+Blocks.bestTools = {
+    dirt = "shovel",
+    sandNormal = "shovel",
+    sandGarnet = "shovel",
+    sandOlivine = "shovel",
+    stone = "pickaxe",
+    granite = "pickaxe",
+    gabbro = "pickaxe",
+    basalt = "pickaxe",
+    rhyolite = "pickaxe",
+    pumice = "pickaxe",
+    oak = "axe",
+    lava = nil
 }
 
 Blocks.currentBreaking = {
@@ -63,6 +89,10 @@ local function getUnderlyingTile(x, z, baseTiles)
     return nil
 end
 
+local night = require"source.projectile.night_cycle"
+
+local function dot(ax,ay,az, bx,by,bz) return ax*bx + ay*by + az*bz end
+
 function Blocks.generate(camera, renderDistanceSq)
     Blocks.placed = Blocks.placed or {}
     camera:updateProjectionConstants()
@@ -70,30 +100,36 @@ function Blocks.generate(camera, renderDistanceSq)
 
     local entries = {}
     local count = 0
+    local sunAngle = (night.time / (night.dayLength)) * (2 * math.pi)
+    local sunDirX = math.cos(sunAngle)
+    local sunDirY = math.sin(sunAngle) * 0.65 + 0.35
+    local sunDirZ = math.sin(sunAngle + 0.7)
+    sunDirX, sunDirY, sunDirZ = utils.normalize(sunDirX, sunDirY, sunDirZ)
+
+    local textureMul = night.getTextureMultiplier() or {1,1,1}
+    local r = textureMul[1]
+    local g = textureMul[2]
+    local b = textureMul[3]
+    local avgMul = (textureMul[1] + textureMul[2] + textureMul[3]) / 3
+
+    local lightFactor = (night.getLight and night.getLight() or 1.0)
+    local lightCurve = lightFactor * lightFactor
+    local ambient = 0.05 + 1 * lightCurve
 
     for bi = 1, #Blocks.placed do
         local block = Blocks.placed[bi]
         local cubeFaces = makeCubeFaces(block.x, block.y, block.z, 1, Blocks.materials[block.type])
-        local baseTile = getUnderlyingTile(block.x, block.z, Blocks.baseTiles)
-        local blendR, blendG, blendB = 1,1,1
-
-        if baseTile and baseTile.texture and baseTile.texture.getFilename then
-            local ok, name = pcall(function() return baseTile.texture:getFilename():lower() end)
-            if ok and name then
-                if name:find("stone") then
-                    blendR, blendG, blendB = 0.85, 0.85, 0.9
-                elseif name:find("sand") then
-                    blendR, blendG, blendB = 1.0, 0.95, 0.85
-                elseif name:find("grass") then
-                    blendR, blendG, blendB = 0.9, 1.0, 0.9
-                end
-            end
-        end
-
         for fi = 1, #cubeFaces do
             local face = cubeFaces[fi]
             local verts = {}
             local visible = true
+            local nx, ny, nz = 0,0,0
+            local v1, v2, v3 = face[1], face[2], face[3]
+            local ux, uy, uz = v2[1]-v1[1], v2[2]-v1[2], v2[3]-v1[3]
+            local vx, vy, vz = v3[1]-v1[1], v3[2]-v1[2], v3[3]-v1[3]
+            nx, ny, nz = uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx
+            nx, ny, nz = utils.normalize(nx, ny, nz)
+
             for i = 1, 4 do
                 local v = face[i]
                 local sx, sy2 = camera:project3D(v[1], v[2], v[3])
@@ -102,17 +138,27 @@ function Blocks.generate(camera, renderDistanceSq)
             end
 
             if visible then
-                local v1, v3 = face[1], face[3]
-                local cx = (v1[1] + v3[1]) * 0.5 - camX
-                local cz = (v1[3] + v3[3]) * 0.5 - camZ
+                local v1f, v3f = face[1], face[3]
+                local cx = (v1f[1] + v3f[1]) * 0.5 - camX
+                local cz = (v1f[3] + v3f[3]) * 0.5 - camZ
                 local distSq = cx*cx + cz*cz
                 if distSq <= renderDistanceSq then
+                    local diff = math.max(0, dot(nx, ny, nz, sunDirX, sunDirY, sunDirZ))
+                    local faceBrightness = ambient + diff * (1.0 - ambient)
+                    if faceBrightness > 1 then faceBrightness = 1 end
+                    faceBrightness = faceBrightness
+                    local finalColor = {r * faceBrightness, g * faceBrightness, b * faceBrightness}
+
+                    if count >= MAX_QUADS then
+                        break
+                    end
+
                     count = count + 1
                     entries[count] = {
                         verts = verts,
                         dist = distSq,
                         texture = face[5],
-                        color = { blendR, blendG, blendB }
+                        color = finalColor
                     }
                 end
             end
@@ -123,28 +169,33 @@ function Blocks.generate(camera, renderDistanceSq)
     return entries
 end
 
-local function makeVertsMeshFromVerts(verts)
+local function makeVertsMeshFromVerts(verts, color)
+    local r = floor((color[1] or 1) * 255)
+    local g = floor((color[2] or 1) * 255)
+    local b = floor((color[3] or 1) * 255)
+    local a = 255
+
     return {
-        {verts[1], verts[2], 0, 0},
-        {verts[3], verts[4], 1, 0},
-        {verts[5], verts[6], 1, 1},
-        {verts[7], verts[8], 0, 1},
+        {verts[1], verts[2], 0, 0, r, g, b, a},
+        {verts[3], verts[4], 1, 0, r, g, b, a},
+        {verts[5], verts[6], 1, 1, r, g, b, a},
+        {verts[7], verts[8], 0, 1, r, g, b, a},
     }
 end
 
 function Blocks.ensureAllMeshes(tbl)
     for i = 1, #tbl do
         local t = tbl[i]
+
         if t and t.verts and not t.mesh then
-            t.vertsMesh = makeVertsMeshFromVerts(t.verts)
-            t.mesh = lg.newMesh(t.vertsMesh, "fan", "static")
+            t.vertsMesh = makeVertsMeshFromVerts(t.verts, t.color)
+
+            t.mesh = lg.newMesh(meshFormat,t.vertsMesh,"fan","static")
+
             if t.texture then
-                pcall(function() t.texture:setWrap("repeat","repeat") end)
+                pcall(function() t.texture:setWrap("repeat", "repeat") end)
                 t.mesh:setTexture(t.texture)
             end
-        elseif t and t.mesh and t.texture then
-            pcall(function() t.texture:setWrap("repeat","repeat") end)
-            t.mesh:setTexture(t.texture)
         end
     end
 end
@@ -177,7 +228,7 @@ function Blocks.raycast(camera, mx, my, maxDistance)
     local dirZ = cy * cp
 
     local step = 0.05
-    local lastEmpty = { x=camera.x, y=camera.y, z=camera.z }
+    local lastEmpty = {x=camera.x, y=camera.y, z=camera.z}
 
     for d = 0, maxDistance, step do
         local rx = camera.x + dirX * d
@@ -223,9 +274,9 @@ end
 
 function Blocks.place(x, y, z, blockType)
     Blocks.placed[#Blocks.placed+1] = {
-        x = floor(x),
-        y = floor(y),
-        z = floor(z),
+        x = floor(x) + 0.5,
+        y = floor(y) ,
+        z = floor(z) + 0.5,
         type = blockType
     }
 end

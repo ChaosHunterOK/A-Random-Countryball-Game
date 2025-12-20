@@ -10,6 +10,10 @@ recipe.recipes = {
         output = "stone_tool"
     },
     {
+        input = {"stick", nil, nil, "stick"},
+        output = "firestarter"
+    },
+    {
         input = {"stone_shovel_head", nil, "stick", nil},
         output = "stone_shovel"
     },
@@ -20,6 +24,10 @@ recipe.recipes = {
     {
         input = {"stone_hammer_head", nil, "stick", nil},
         output = "stone_hammer"
+    },
+    {
+        input = {"stone_pick_head", nil, "stick", nil},
+        output = "stone_pickaxe"
     },
 }
 
