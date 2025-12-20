@@ -738,36 +738,40 @@ end
 local rayStep = 0.25
 function getTileUnderCursor(mx, my, maxDistance)
     maxDistance = maxDistance or 100
-    local nx, ny = (mx / base_width - 0.5) * 2, (my / base_height - 0.5) * -2
+    local nx = (mx / base_width - 0.5) * 2
+    local ny = (my / base_height - 0.5) * -2
+    
+    local aspect = base_width / base_height
+    local tanFOV = math.tan(math.rad(camera.fov / 2))
     local yaw, pitch = camera.yaw, camera.pitch
-    local cy, sy, cp, sp = cos(yaw), sin(yaw), cos(pitch), sin(pitch)
+    local cy, sy = math.cos(yaw), math.sin(yaw)
+    local cp, sp = math.cos(pitch), math.sin(pitch)
 
     local forward = {x=sy*cp, y=sp, z=cy*cp}
     local right = {x=cy, y=0, z=-sy}
     local up = {x=-sy*sp, y=cp, z=-cy*sp}
     local rayDir = {
-        x = forward.x + right.x*nx + up.x*ny,
-        y = forward.y + right.y*nx + up.y*ny,
-        z = forward.z + right.z*nx + up.z*ny
+        x = forward.x + (right.x * nx * aspect * tanFOV) + (up.x * ny * tanFOV),
+        y = forward.y + (right.y * nx * aspect * tanFOV) + (up.y * ny * tanFOV),
+        z = forward.z + (right.z * nx * aspect * tanFOV) + (up.z * ny * tanFOV)
     }
 
-    local len = sqrt(rayDir.x^2 + rayDir.y^2 + rayDir.z^2)
+    local len = math.sqrt(rayDir.x^2 + rayDir.y^2 + rayDir.z^2)
     rayDir.x, rayDir.y, rayDir.z = rayDir.x/len, rayDir.y/len, rayDir.z/len
+    
     local px, py, pz = camera.x, camera.y, camera.z
-
     local closestDist = math.huge
     local hitTile, hitX, hitY, hitZ
 
     for t = 0, maxDistance, rayStep do
         local wx, wy, wz = px + rayDir.x*t, py + rayDir.y*t, pz + rayDir.z*t
         for _, block in ipairs(Blocks.placed) do
-            local dx, dy, dz = wx - block.x, wy - block.y, wz - block.z
-            if math.abs(dx) <= 0.5 and math.abs(dy) <= 0.5 and math.abs(dz) <= 0.5 then
-                local dist = sqrt((wx - px)^2 + (wy - py)^2 + (wz - pz)^2)
+            if math.abs(wx - block.x) <= 0.5 and math.abs(wy - block.y) <= 0.5 and math.abs(wz - block.z) <= 0.5 then
+                local dist = t
                 if dist < closestDist then
                     closestDist = dist
-                    hitTile = block
-                    hitX, hitY, hitZ = block.x, block.y, block.z
+                    hitTile, hitX, hitY, hitZ = block, block.x, block.y, block.z
+                    return hitTile, hitX, hitY, hitZ 
                 end
             end
         end
@@ -777,18 +781,9 @@ function getTileUnderCursor(mx, my, maxDistance)
             if wy <= avgY + 0.5 then
                 local cx = (tile[1][1]+tile[2][1]+tile[3][1]+tile[4][1])*0.25
                 local cz = (tile[1][3]+tile[2][3]+tile[3][3]+tile[4][3])*0.25
-                local dist = sqrt((wx - px)^2 + (wy - py)^2 + (wz - pz)^2)
-                if dist < closestDist then
-                    closestDist = dist
-                    hitTile = tile
-                    hitX, hitY, hitZ = cx, avgY, cz
-                end
+                return tile, cx, avgY, cz
             end
         end
-    end
-
-    if hitTile then
-        return hitTile, hitX, hitY, hitZ
     end
 end
 

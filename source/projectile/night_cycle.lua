@@ -1,7 +1,7 @@
 local night = {}
 
 night.time = 0
-night.dayLength = 15
+night.dayLength = 125
 night.light = 2
 night.skyColor = {0.45, 0.70, 1.0}
 night.nightColor = {0.03, 0.03, 0.07}
@@ -14,8 +14,8 @@ local function lerp(a, b, t) return a + (b - a) * t end
 
 function night.update(dt)
     night.time = night.time + dt
-    if night.time >= night.dayLength then 
-        night.time = night.time - night.dayLength 
+    if night.time >= night.dayLength then
+        night.time = night.time - night.dayLength
     end
 
     local t = night.time / night.dayLength
