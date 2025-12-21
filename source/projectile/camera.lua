@@ -9,6 +9,8 @@ camera.smoothness = 5.0
 camera.hw, camera.hh = 500, 262
 camera.fovRad = 0
 camera.fovHalfTan = 0
+camera.lookX = 0
+camera.lookZ = 0
 
 camera._forward = {x=0, y=0, z=0}
 camera._right = {x=0, y=0, z=0}
@@ -26,6 +28,13 @@ function camera:updateProjectionConstants(w, h)
     self.fovRad = rad(self.fov) / self.zoom
     self.fovHalfTan = tan(self.fovRad * 0.5)
     self._f = 1 / self.fovHalfTan
+    self.lookX = sin(self.yaw)
+    self.lookZ = cos(self.yaw)
+end
+
+function camera:isPointInFront(x, z)
+    local dx, dz = x - self.x, z - self.z
+    return (dx * self.lookX + dz * self.lookZ) > -1.0
 end
 
 function camera:getForward()
@@ -54,16 +63,15 @@ function camera:project3D(x, y, z)
     local dx, dy, dz = x - self.x, y - self.y, z - self.z
     local cy, sy = cos(self.yaw), sin(self.yaw)
     local cp, sp = cos(self.pitch), sin(self.pitch)
-
     local x1 = dx * cy - dz * sy
     local z1 = dx * sy + dz * cy
     local y1 = dy * cp - z1 * sp
     local z2 = dy * sp + z1 * cp
-
-    z2 = math.max(z2, 0.01)
-
+    if z2 < 0.1 then return nil, nil end
     local inv = 1 / (z2 * self.fovHalfTan)
-    return (x1 * inv / self.aspect) * self.hw + self.hw, (-y1 * inv) * self.hh + self.hh, z2
+    local screenX = (x1 * inv / self.aspect) * self.hw + self.hw
+    local screenY = (-y1 * inv) * self.hh + self.hh
+    return screenX, screenY, z2
 end
 
 function camera:getMVPMatrix()

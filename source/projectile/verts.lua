@@ -4,6 +4,7 @@ local gl = require "source.gl.opengl"
 local utils = require("source.utils")
 local lg = love.graphics
 local m = math
+local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
 
 ffi.cdef[[
@@ -32,7 +33,7 @@ for i = 0, WN-1 do
     local w = waveDefs[i+1]
     waves_ffi[i].dirx, waves_ffi[i].dirz = w.dir[1], w.dir[2]
     waves_ffi[i].amplitude, waves_ffi[i].k = w.amplitude, w.k
-    waves_ffi[i].speed, waves_ffi[i].steepness = w.speed, w.speed
+    waves_ffi[i].speed, waves_ffi[i].steepness = w.speed, w.steepness
     waves_ffi[i].uvSpeed = w.uvSpeed
 end
 
@@ -135,14 +136,27 @@ local function projBufToLuaArray(buf)
 end
 
 local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
-    local sx, sy = camera:project3D(v1[1], v1[2], v1[3])
-    if not sx then return false end; buf[0], buf[1] = sx, sy
-    sx, sy = camera:project3D(v2[1], v2[2], v2[3])
-    if not sx then return false end; buf[2], buf[3] = sx, sy
-    sx, sy = camera:project3D(v3[1], v3[2], v3[3])
-    if not sx then return false end; buf[4], buf[5] = sx, sy
-    sx, sy = camera:project3D(v4[1], v4[2], v4[3])
-    if not sx then return false end; buf[6], buf[7] = sx, sy
+    local w, h = base_width, base_height
+    local sx1, sy1 = camera:project3D(v1[1], v1[2], v1[3])
+    if not sx1 then return false end
+    local sx2, sy2 = camera:project3D(v2[1], v2[2], v2[3])
+    if not sx2 then return false end
+    local sx3, sy3 = camera:project3D(v3[1], v3[2], v3[3])
+    if not sx3 then return false end
+    local sx4, sy4 = camera:project3D(v4[1], v4[2], v4[3])
+    if not sx4 then return false end
+
+    if (sx1 < 0 and sx2 < 0 and sx3 < 0 and sx4 < 0) or
+       (sx1 > w and sx2 > w and sx3 > w and sx4 > w) or
+       (sy1 < 0 and sy2 < 0 and sy3 < 0 and sy4 < 0) or
+       (sy1 > h and sy2 > h and sy3 > h and sy4 > h) then
+        return false
+    end
+
+    buf[0], buf[1] = sx1, sy1
+    buf[2], buf[3] = sx2, sy2
+    buf[4], buf[5] = sx3, sy3
+    buf[6], buf[7] = sx4, sy4
     return true
 end
 
@@ -184,6 +198,10 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         local tile = tiles[t]
         if not tile or not tile[1] then goto continue end
         if not isTileInRangeFast(tile, camX, camZ, renderDistanceSq) then goto continue end
+        local tx, tz = (tile[1][1] + tile[3][1]) * 0.5, (tile[1][3] + tile[3][3]) * 0.5
+        if not camera:isPointInFront(tx, tz) then
+            goto continue
+        end
         local v1x,v1y,v1z = tile[1][1], tile[1][2], tile[1][3]
         local v2x,v2y,v2z = tile[2][1], tile[2][2], tile[2][3]
         local v3x,v3y,v3z = tile[3][1], tile[3][2], tile[3][3]
