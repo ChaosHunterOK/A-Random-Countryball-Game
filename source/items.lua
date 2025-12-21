@@ -3,6 +3,7 @@ local lg = love.graphics
 
 local itemDefinitions = {
     apple = { "image/items/apple.png", 10, true },
+    green_apple = { "image/items/green_apple.png", 10, true },
     amorphous = { "image/items/amorphous.png", 1, false },
     bituminous_coal = { "image/items/bituminous_coal.png", 20, false },
     flint = { "image/items/flint.png", 20, false },

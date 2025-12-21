@@ -31,7 +31,10 @@ local WN = #waveDefs
 local waves_ffi = ffi.new("Wave[?]", WN)
 for i = 0, WN-1 do
     local w = waveDefs[i+1]
-    waves_ffi[i].dirx, waves_ffi[i].dirz = w.dir[1], w.dir[2]
+    local dx,dz = w.dir[1], w.dir[2]
+    local len = sqrt(dx*dx + dz*dz)
+    waves_ffi[i].dirx = (w.dir[1] / len) * w.k
+    waves_ffi[i].dirz = (w.dir[2] / len) * w.k
     waves_ffi[i].amplitude, waves_ffi[i].k = w.amplitude, w.k
     waves_ffi[i].speed, waves_ffi[i].steepness = w.speed, w.steepness
     waves_ffi[i].uvSpeed = w.uvSpeed
@@ -66,12 +69,12 @@ local function gerstner_f(x, z)
     local y, ox, oz = 0.0, 0.0, 0.0
     for i = 0, WN-1 do
         local w = waves_ffi[i]
-        local phase = w.k * (w.dirx * x + w.dirz * z) - timeK_ffi[i]
+        local phase = (w.dirx * x + w.dirz * z) - timeK_ffi[i]
         local s, c = sin(phase), cos(phase)
         y = y + w.amplitude * s
         local a = w.steepness * w.amplitude
-        ox = ox + a * w.dirx * c
-        oz = oz + a * w.dirz * c
+        ox = ox + a * (w.dirx / w.k) * c
+        oz = oz + a * (w.dirz / w.k) * c
     end
     return y, ox, oz
 end

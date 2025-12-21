@@ -176,21 +176,31 @@ local function createBaseplate(width, depth, formatType)
             radius = random(3, 8), height = random(2, 7)
         } end
         for z = 0, depth do
+            local z_scaled = z * C_SCALE
+            local z_volcano = z * C_VOLCANO_H_NOISE
+            local z_mask = z * C_CAVE_MASK_NOISE
+            local z_river = z * C_RIVER_FACTOR
+            local cos_z_river = cos(z_river)
+
             for x = 0, width do
-                local h = perlin(x * C_SCALE, z * C_SCALE) * 7
-                local river = sin(x * C_RIVER_FACTOR) * cos(z * C_RIVER_FACTOR)
+                local h = perlin(x * C_SCALE, z_scaled) * 7
+                local river = sin(x * C_RIVER_FACTOR) * cos_z_river
                 if river > -0.08 and river < 0.08 then h = h - 2.8 end
 
-                for _, isl in ipairs(islands) do
+                for i = 1, #islands do
+                    local isl = islands[i]
                     local dx, dz = x - isl.cx, z - isl.cz
-                    local dist = sqrt(dx * dx + dz * dz)
-                    if dist < isl.radius then
-                        h = h + isl.height * (1 - dist / isl.radius)
+                    local distSq = dx * dx + dz * dz
+                    local rad = isl.radius
+                    if distSq < rad * rad then
+                        h = h + isl.height * (1 - sqrt(distSq) / rad)
                     end
                 end
-                local volcanoNoise = perlin(x * C_VOLCANO_H_NOISE, z * C_VOLCANO_H_NOISE)
+                
+                local volcanoNoise = perlin(x * C_VOLCANO_H_NOISE, z_volcano)
                 if volcanoNoise > 0.95 then h = h + 6 + (volcanoNoise - 0.95) * 10 end
-                local caveMask = perlin(x * C_CAVE_MASK_NOISE, z * C_CAVE_MASK_NOISE, 0)
+                
+                local caveMask = perlin(x * C_CAVE_MASK_NOISE, z_mask, 0)
                 if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
 
                 set_h(x, z, h)
@@ -205,7 +215,7 @@ local function createBaseplate(width, depth, formatType)
     local function chunkKey(cx, cz) return cx..":"..cz end
 
     for z = 0, depth - 1 do
-        tileGrid[z] = tileGrid[z] or {} 
+        tileGrid[z] = tileGrid[z] or {}
         for x = 0, width - 1 do
             local h1, h2 = get_h(x, z), get_h(x + 1, z)
             local h3, h4 = get_h(x + 1, z + 1), get_h(x, z + 1)
@@ -507,8 +517,11 @@ local function tillTile(tile)
     end
     if not matName then return end
 
-    if matName == "grassNormal" or matName == "dirt" then
+    if matName == "grassNormal" or matName == "grassHot" or matName == "grassCold" or matName == "dirt" then
         tile.texture = materials.farmland
+        updateTileMeshes(true)
+    elseif matName == "grassNormal" then
+        tile.texture = materials.dirt
         updateTileMeshes(true)
     end
 end
@@ -541,6 +554,27 @@ local function updateDirtToGrass(dt)
             updateTileMeshes(true)
         else
             dirtTimers[tile] = timeLeft
+        end
+    end
+end
+
+local function damageSelectedItem(amount)
+    local slot = Inventory:getSelected()
+    if not slot then return end
+
+    local def = itemTypes[slot.type]
+    if not def or not def.durability then return end
+    if slot.durability == nil then
+        slot.durability = def.durability
+    end
+
+    slot.durability = slot.durability - (amount or 1)
+    if slot.durability <= 0 then
+        slot.count = slot.count - 1
+        slot.durability = nil
+
+        if slot.count <= 0 then
+            Inventory.items[Inventory.selectedSlot] = nil
         end
     end
 end
@@ -584,6 +618,7 @@ function love.mousepressed(mx, my, button)
             if selected and selected.type == "stone_hoe" then
                 local tile, cx, cy, cz = getTileUnderCursor(mx, my)
                 tillTile(tile)
+                damageSelectedItem(1)
                 return
             end
         end
@@ -627,6 +662,7 @@ function love.mousepressed(mx, my, button)
                         br.tile = nil
                         br.progress = 0
                         updateTileMeshes(true)
+                        damageSelectedItem(1)
                     end
                 end
             end

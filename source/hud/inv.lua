@@ -63,7 +63,7 @@ function Inventory:add(itemType, amount, itemTypes)
         if not self.items[i] and amount > 0 then
             local stackLimit = itemTypes[itemType].stack or 1
             local toAdd = math.min(amount, stackLimit)
-            self.items[i] = { type = itemType, count = toAdd }
+            self.items[i] = { type = itemType, count = toAdd, durability = itemTypes[itemType].durability }
             amount = amount - toAdd
         end
         if amount <= 0 then break end
@@ -164,10 +164,12 @@ function Inventory:mousepressed(mx, my, button, itemTypes, crafting)
                     if button == 1 then
                         self.heldItem = slot.type
                         self.heldCount = slot.count
+                        self.heldDurability = slot.durability
                         self.items[i] = nil
                     elseif button == 2 then
                         self.heldItem = slot.type
                         self.heldCount = 1
+                        self.heldDurability = slot.durability
                         slot.count = slot.count - 1
                         if slot.count <= 0 then self.items[i] = nil end
                     end
@@ -194,10 +196,11 @@ function Inventory:mousepressed(mx, my, button, itemTypes, crafting)
                             end
                         end
                     else
-                        local prevType, prevCount = slot.type, slot.count
+                        local prevType, prevCount, prevDurability = slot.type, slot.count, slot.durability
                         self.items[i] = { type = self.heldItem, count = self.heldCount }
                         self.heldItem = prevType
                         self.heldCount = prevCount
+                        self.heldDurability = prevDurability
                     end
                 end
             else

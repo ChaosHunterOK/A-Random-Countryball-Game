@@ -79,6 +79,23 @@ function Crafting:draw(inventory, itemTypes, items)
             lg.draw(itemImg, x + (barWidth-iw*scale)/2, y + (barHeight-ih*scale)/2, 0, scale, scale)
             lg.setColor(1,1,1,1)
             utils.drawTextWithBorder(slot.count, x + 16*scale, y + 8*scale)
+
+            if slot.durability and itemTypes[slot.type].durability then
+                local maxDur = itemTypes[slot.type].durability
+                local ratio = math.max(0, slot.durability / maxDur)
+
+                local barW = barWidth - 12 * scale
+                local barH = 6 * scale
+                local bx = x + 6 * scale
+                local by = y + barHeight - barH - 6 * scale
+
+                lg.setColor(0,0,0,1)
+                lg.rectangle("fill", bx, by, barW, barH)
+                lg.setColor(1 - ratio, ratio, 0)
+                lg.rectangle("fill", bx + 1*scale, by + 1*scale, (barW - 2*scale) * ratio, barH - 2*scale)
+
+                lg.setColor(1,1,1,1)
+            end
         end
 
         if mx >= x and mx <= x + barWidth and my >= y and my <= y + barHeight and slot then
@@ -101,7 +118,7 @@ function Crafting:draw(inventory, itemTypes, items)
     end
 
     if self.draggingSlot then
-        local slot = self.slots[self.draggingSlot] or {type=inventory.heldItem, count=inventory.heldCount}
+        local slot = self.slots[self.draggingSlot] or {type=inventory.heldItem, count=inventory.heldCount, durability = inventory.heldDurability or itemTypes[inventory.heldItem].durability}
         if slot and slot.type then
             local itemImg = itemTypes[slot.type] and itemTypes[slot.type].img
             if itemImg then
@@ -142,7 +159,17 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
 
     if (button == 1 or button == 2) and self.craftedItem and mx >= outputX and mx <= outputX + barWidth and my >= outputY and my <= outputY + barHeight then
         if inventory:hasFreeSlot() then
+            local maxDur = itemTypes[self.craftedItem].durability
+
             inventory:add(self.craftedItem, 1, itemTypes)
+            for i = inventory.maxSlots, 1, -1 do
+                local slot = inventory.items[i]
+                if slot and slot.type == self.craftedItem then
+                    slot.durability = maxDur
+                    break
+                end
+            end
+
             for i = 1, 4 do
                 local slot = self.slots[i]
                 if slot then
