@@ -113,6 +113,19 @@ function Inventory:draw(itemTypes)
             local iw, ih = itemImg:getWidth(), itemImg:getHeight()
             lg.draw(itemImg, x + (barWidth - iw*scale)/2, y + (barHeight - ih*scale)/2, 0, scale, scale)
             utils.drawTextWithBorder(tostring(slot.count), x + 16*scale, y + 8*scale)
+            if slot.durability and itemTypes[slot.type].durability then
+                local maxDur = itemTypes[slot.type].durability
+                local ratio = math.max(0, slot.durability / maxDur)
+                local barW = barWidth - 12 * scale
+                local barH = 6 * scale
+                local bx = x + 6 * scale
+                local by = y + barHeight - barH - 6 * scale
+                lg.setColor(0, 0, 0)
+                lg.rectangle("fill", bx, by, barW, barH)
+                lg.setColor(1 - ratio, ratio, 0)
+                lg.rectangle("fill", bx + 1*scale, by + 1*scale, (barW - 2*scale) * ratio, barH - 2*scale)
+                lg.setColor(1,1,1,1)
+            end
         end
     end
     if self.heldItem then
