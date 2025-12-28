@@ -6,7 +6,7 @@ local base_width, base_height = 1000, 525
 local stage = lg.newImage("image/stage.png")
 
 local SkinsMenu = {
-    skins = {"default"}, 
+    skins = {"default"},
     selected = 1,
     loadedSkinName = "countryball",
 }

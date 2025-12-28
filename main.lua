@@ -9,7 +9,7 @@ lg.setFrontFaceWinding("ccw")
 
 local gamestate = "menu"
 local m = math
-local sqrt, floor, sin, cos, max, min, random, abs = m.sqrt, m.floor, m.sin, m.cos, m.max, m.min, m.random, m.abs
+local sqrt, floor, sin, cos, max, min, random, abs, huge = m.sqrt, m.floor, m.sin, m.cos, m.max, m.min, m.random, m.abs, m.huge
 
 local src = "source."
 local hud = src.."hud."
@@ -18,6 +18,7 @@ local menu = src.."menus."
 
 local camera = require(proj.."camera")
 local countryball = require(src.."countryball")
+local mobs = require(src.."mobs")
 local ItemsModule = require(src.."items")
 local Inventory = require(hud.."inv")
 local Crafting = require(hud.."craft")
@@ -28,6 +29,8 @@ local utils = require(src.."utils")
 local Collision = require(src.."collision")
 local OptMenu = require(menu.."options")
 local SkinsMenu = require(menu.."skins")
+local ModsMenu = require(menu.."mods")
+local ModAPI = require(src.."mod_api")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
@@ -37,20 +40,19 @@ local skyBox = require(proj.."skybox")
 local nightCycle = require(proj.."night_cycle")
 
 local visible_idk = {cursor = true, skyBox = false}
-local clamp, perlin, any = utils.clamp, utils.fastPerlin, utils.any
+local clamp, perlin, getChunkKey = utils.clamp, utils.fastPerlin, utils.getChunkKey
 
 local particlesImgs = {
     smoke = lg.newImage("image/smoke.png")
 }
 
 local songs = {
-    main = "music/music.mp3"
+    main = "music/music.mp3",
+    menu = "music/menu.mp3"
 }
 local audioSources = {}
 
-local itemsOnGround = ItemsModule.itemsOnGround
-local itemTypes = ItemsModule.itemTypes
-local items = ItemsModule.items
+local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
 local chunkCfg = {size = 4, radius = 4}
 local base_width, base_height = 1000, 525
@@ -60,24 +62,20 @@ local renderDistanceSq = renderDistance * renderDistance
 function loadMaterials(tbl)
     local res = {}
     for k, path in pairs(tbl) do
-        local info = love.filesystem.getInfo(path)
-        if info then res[k] = lg.newImage(path) end
+        if love.filesystem.getInfo(path) then
+            res[k] = lg.newImage(path)
+        end
     end
     return res
 end
 
-local menuItems = {"Play", "Mods", "Skins", "Options", "Quit"}
-local selectedIndex = 1
-local menuX = 50
-local menuSpacing = 81.25
-local menuCamX, menuCamZ = 50, 50
-local menuTargetCamX, menuTargetCamZ = 50, 50
+local menuItems = {"Play", "Mods", "Skins", "Options", "Credits", "Quit"}
+local selectedIndex, menuX, menuSpacing = 1, 50, base_height / 8
+local menuCamX, menuCamZ, menuTargetCamX, menuTargetCamZ = 50, 50, 50, 50
 local bgSmooth = 0.02
 
-local pauseOpen = false
-local pauseProgress = 0
-local pauseItems = {"Resume", "Options", "Leave"}
-local pauseSelected = 1
+local pauseOpen, pauseProgress = false, 0
+local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
 local prevGamestate = nil
 
@@ -116,13 +114,6 @@ Blocks.load(materials)
 local tileGrid, baseplateTiles, heights = {}, {}, {}
 local mapSeed = os.time()
 
-local function getTileAt(x, z)
-    local col = tileGrid[floor(x)]
-    return col and col[floor(z)]
-end
-Props.spawnProps(25, 20, 20, getTileAt)
-ItemsModule.dropItem(countryball.x, countryball.x, countryball.x, "stone_pickaxe")
-
 local function setSeed(seed)
     mapSeed = seed
     m.randomseed(mapSeed)
@@ -130,38 +121,58 @@ end
 
 local function getChunkCoord(v) return floor(v / chunkCfg.size) end
 
-function determineBiome(h, t, h2, volc)
+function determineBiome(h, t, h2, volc, x, z)
+    local ctx = {
+        height = h,
+        temperature = t,
+        humidity = h2,
+        volcano = volc,
+        x = x or 0,
+        z = z or 0
+    }
+
+    local chosen, bestPriority = nil, -huge
+
+    for id, biome in pairs(ModAPI.biomes) do
+        if biome.condition(ctx) then
+            local p = biome.priority or 0
+            if p > bestPriority then
+                chosen = id
+                bestPriority = p
+            end
+        end
+    end
+
+    if chosen then return chosen end
     if h < 0.6 then return "OceanDeep" end
     if h < 1.8 then return "OceanShallow" end
-    if h < 3.6 then return t>0.45 and "HotDesert" or t<-0.2 and "ColdDesert" or "Desert" end
-    if volc>0.92 and h>6 then return h>10 and "VolcanicPeak" or "Volcanic" end
-    if h<6 then return t<-0.25 and "Tundra" or t>0.4 and "Savanna" or "Grassland" end
-    if h<9.5 then return h2<-0.2 and "DryHighlands" or h2>0.4 and "WetHighlands" or "Highlands" end
-    return h<11 and "Alpine" or "SnowPeak"
+    if h < 3.6 then return "Desert" end
+    if h < 6 then return "Grassland" end
+    if h < 9.5 then return "Highlands" end
+    return "SnowPeak"
 end
 
-function caveNoise3D(x, y, z, scale)
-    return perlin(x * scale, y * scale, z * scale)
-end
-
+local biomeGrassMap = {
+    Grassland = "grassNormal", Highlands = "grassNormal",
+    Desert = nil, OceanShallow = nil, OceanDeep = nil,
+    SnowPeak = "grassCold", Tundra = "grassCold",
+    Volcanic = "grassHot", Savanna = "grassHot",
+}
 local C_SCALE = 0.08
 local C_BIOME_SCALE = 0.05
-local C_TOPSOIL_DEPTH = 3
-local C_MAX_SUB_DEPTH = 25
-local C_CAVE_3D_SCALE = 0.12
-local C_CAVE_DEPTH_SCALE = 0.4
-local C_CAVE_THRESHOLD = 0.62
 local C_VOLCANO_NOISE_SCALE = 0.04
 local C_RIVER_FACTOR = 0.25
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
+local C_CAVE_NOISE_SCALE = 0.15
+local C_CAVE_THRESHOLD = 0.65
 
 local function createBaseplate(width, depth, formatType)
     formatType = formatType or "normal"
-    
+
     local nx, nz = width + 1, depth + 1
     local totalPoints = nx * nz
-    local heights_buf = ffi.new("double[?]", totalPoints) 
+    local heights_buf = ffi.new("double[?]", totalPoints)
 
     local function h_index(x, z) return x * nz + z end
     local function set_h(x, z, v) heights_buf[h_index(x, z)] = v end
@@ -172,7 +183,7 @@ local function createBaseplate(width, depth, formatType)
     else
         local islands = {}
         for i = 1, 3 do islands[i] = {
-            cx = random(6, width - 6), cz = random(6, depth - 6), 
+            cx = random(6, width - 6), cz = random(6, depth - 6),
             radius = random(3, 8), height = random(2, 7)
         } end
         for z = 0, depth do
@@ -181,9 +192,9 @@ local function createBaseplate(width, depth, formatType)
             local z_mask = z * C_CAVE_MASK_NOISE
             local z_river = z * C_RIVER_FACTOR
             local cos_z_river = cos(z_river)
-
+            local C_HEIGHT_MULT = 6
             for x = 0, width do
-                local h = perlin(x * C_SCALE, z_scaled) * 7
+                local h = perlin(x * C_SCALE, z_scaled) * C_HEIGHT_MULT
                 local river = sin(x * C_RIVER_FACTOR) * cos_z_river
                 if river > -0.08 and river < 0.08 then h = h - 2.8 end
 
@@ -203,6 +214,13 @@ local function createBaseplate(width, depth, formatType)
                 local caveMask = perlin(x * C_CAVE_MASK_NOISE, z_mask, 0)
                 if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
 
+                local ctx = {x = x,z = z,height = h}
+
+                for _, layer in ipairs(ModAPI.terrainLayers) do
+                    layer(ctx)
+                end
+
+                h = ctx.height
                 set_h(x, z, h)
             end
         end
@@ -225,62 +243,48 @@ local function createBaseplate(width, depth, formatType)
             local tempNoise = perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200)
             local humidNoise = perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400)
             local volcanicInfluence = perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
-            local tileTexture = materials.grassNormal
-            if avgH < 0.6 then tileTexture = materials.waterDeep
-            elseif avgH < 1.8 then tileTexture = materials.waterMedium
+            local texName = "grassNormal"
+
+            if avgH < 0.6 then texName = "waterDeep"
+            elseif avgH < 1.8 then texName = "waterMedium"
             elseif avgH < 3.6 then
-                if tempNoise < -0.2 then tileTexture = materials.sandGypsum
-                elseif biomeNoise < -0.2 then tileTexture = materials.sandGarnet
-                elseif biomeNoise > 0.45 then tileTexture = materials.sandOlivine
-                else tileTexture = materials.sandNormal end
+                if tempNoise < -0.2 then texName = "sandGypsum"
+                elseif biomeNoise < -0.2 then texName = "sandGarnet"
+                elseif biomeNoise > 0.45 then texName = "sandOlivine"
+                else texName = "sandNormal"end
             elseif avgH < 6 then
-                if tempNoise < -0.25 then tileTexture = materials.grassCold
-                elseif tempNoise > 0.4 then tileTexture = materials.grassHot end
+                if tempNoise < -0.25 then texName = "grassCold"
+                elseif tempNoise > 0.4 then texName = "grassHot"
+                else texName = "grassNormal"end
             elseif avgH < 9.5 then
                 local rockSel = perlin(x * 0.2, z * 0.2)
-                tileTexture = rockSel < -0.25 and materials.stone_dark or rockSel > 0.45 and materials.rhyolite or materials.stone
-            elseif avgH < 11 then tileTexture = materials.granite
-            else tileTexture = materials.snow end
+                if rockSel < -0.25 then texName = "stone_dark"
+                elseif rockSel > 0.45 then texName = "rhyolite"
+                else texName = "stone" end
+            elseif avgH < 11 then texName = "granite" else texName = "snow"end
+            if volcanicInfluence > 0.93 and avgH > 6 then if avgH > 10 then texName = (perlin(x * 0.2, z * 0.2) > 0.5) and "lava" or "basalt" else texName = "basalt"end end
 
-            if volcanicInfluence > 0.93 and avgH > 6 then
-                tileTexture = avgH > 10 and (perlin(x * 0.2, z * 0.2) > 0.5 and materials.lava or materials.basalt) or materials.basalt
-            end
+            local tileTexture = materials[texName]
             
             local subsurface = {}
-            local anyCave = false
-            for depthY = 1, C_MAX_SUB_DEPTH do
-                local worldY = avgH - depthY
-                local caveVal = caveNoise3D(x * C_CAVE_3D_SCALE + 500, worldY * C_CAVE_DEPTH_SCALE + 900, z * C_CAVE_3D_SCALE + 700, C_CAVE_3D_SCALE)
-                local isCave = (caveVal > C_CAVE_THRESHOLD and worldY < avgH - 1)
-                
-                if isCave then
-                    subsurface[depthY] = "air_cave"
-                    anyCave = true
-                elseif depthY <= C_TOPSOIL_DEPTH then
-                    subsurface[depthY] = (avgH < 3.6 and "sandNormal" or "dirt")
-                elseif volcanicInfluence > 0.92 then
-                    subsurface[depthY] = "basalt"
-                else
-                    subsurface[depthY] = "stone"
-                end
-            end
 
-            if subsurface[1] == "dirt" and subsurface[2] == "air_cave" then subsurface[1] = "air_cave" end
+            if subsurface[1] == "dirt" and subsurface[2] == "air" then subsurface[1] = "air" end
             local chunkX, chunkZ = getChunkCoord(x), getChunkCoord(z)
 
             local tile = {
                 {x, h1, z}, {x + 1, h2, z}, {x + 1, h3, z + 1}, {x, h4, z + 1},
                 x = x, z = z, y = avgH, height = avgH, curHeight = avgH,
                 biome = determineBiome(avgH, tempNoise, humidNoise, volcanicInfluence),
-                texture = tileTexture, subsurface = subsurface,
-                containsCave = anyCave,
+                texture = tileTexture, textureName = texName, subsurface = subsurface, wallTex = tileTexture,
                 isVolcano = (volcanicInfluence > 0.92 and avgH > 6),
                 heights = {h1, h2, h3, h4},
-                chunkX = chunkX,
-                chunkZ = chunkZ,
+                chunkX = chunkX, chunkZ = chunkZ,
                 mesh = nil,
-                needsMesh = true
+                floorY = 0,
+                needsMesh = true,
             }
+
+            ModAPI.runHooks("onTileGenerate", tile)
 
             baseplateTiles[idx] = tile
             tileGrid[x] = tileGrid[x] or {}
@@ -303,6 +307,13 @@ local function createBaseplate(width, depth, formatType)
     end
 end
 
+local function getTileAt(x, z)
+    x, z = floor(x), floor(z)
+    if x < 0 or z < 0 then return nil end
+    local col = tileGrid[x]
+    return col and col[z]
+end
+
 local dirtTimers = {}
 local DIRT_TO_GRASS_TIME = 30
 
@@ -312,8 +323,14 @@ local function regenerateMap(w, d, seed)
     createBaseplate(w, d)
 end
 
+local function resetWorldFromMods()
+    regenerateMap(100, 100, os.time())
+    updateTileMeshes(true)
+end
+
 local preloadedTiles = {}
 local lastCamChunkX, lastCamChunkZ = nil, nil
+local visibleTileSet = {}
 function updateTileMeshes(force)
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
     if not force and camChunkX == lastCamChunkX and camChunkZ == lastCamChunkZ then
@@ -321,56 +338,76 @@ function updateTileMeshes(force)
     end
     lastCamChunkX, lastCamChunkZ = camChunkX, camChunkZ
 
+    local newVisibleSet = {}
     local visibleTiles = {}
+
     local r = chunkCfg.radius
     for cz = camChunkZ - r, camChunkZ + r do
         for cx = camChunkX - r, camChunkX + r do
-            local list = baseplateTiles._tileChunks[tostring(cx)..":"..tostring(cz)]
+            local list = baseplateTiles._tileChunks[cx .. ":" .. cz]
             if list then
-                for i = 1, #list do visibleTiles[#visibleTiles+1] = baseplateTiles[list[i]] end
+                for i = 1, #list do
+                    local tile = baseplateTiles[list[i]]
+                    visibleTiles[#visibleTiles + 1] = tile
+                    newVisibleSet[tile] = true
+                end
             end
         end
     end
+    for tile in pairs(visibleTileSet) do
+        if not newVisibleSet[tile] then
+            if tile.mesh then
+                tile.mesh:release()
+                tile.mesh = nil
+            end
+            tile.needsMesh = true
+        end
+    end
+
+    visibleTileSet = newVisibleSet
 
     preloadedTiles = verts.generate(visibleTiles, camera, renderDistanceSq, tileGrid, materials)
     verts.ensureAllMeshes(preloadedTiles, materials)
 end
+
 local fadeMargin, baseScale = 5, 3.0
 
-local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha)
+local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOffset)
     if not img then return end
     local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
-    local chunkDistSq = (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2
-    if chunkDistSq > chunkCfg.radius^2 then return end
-
-    local sx, sy, z = camera:project3D(objX, objY, objZ)
+    if (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2 > chunkCfg.radius^2 then
+        return
+    end
+    yOffset = yOffset or -0.04
+    
+    local sx, sy, z = camera:project3D(objX, objY + yOffset, objZ)
     if not sx or z <= 0 then return end
-    if sx < fadeMargin or sx > base_width - fadeMargin or sy < fadeMargin or sy > base_height - fadeMargin then return end
+
+    if sx < fadeMargin or sx > base_width - fadeMargin
+    or sy < fadeMargin or sy > base_height - fadeMargin then
+        return
+    end
+
     local scale = (camera.hw / z) * (camera.zoom * 0.0025) * baseScale
     local w, h = img:getWidth(), img:getHeight()
-    local objDistSq = (objX - camera.x)^2 + (objZ - camera.z)^2
-
-    local sunAngle = (nightCycle.time / (nightCycle.dayLength)) * (2 * math.pi)
-    local sunDirX = math.cos(sunAngle)
-    local sunDirY = math.sin(sunAngle) * 0.65 + 0.35
-    local sunDirZ = math.sin(sunAngle + 0.7)
-    sunDirX, sunDirY, sunDirZ = utils.normalize(sunDirX, sunDirY, sunDirZ)
     local textureMul = nightCycle.getTextureMultiplier() or {1,1,1}
 
-    love.graphics.stencil(function()
+    lg.push("all")
+    lg.setDepthMode("always", false)
+    
+    lg.stencil(function()
         for _, t in ipairs(preloadedTiles) do
-            if t.mesh and t.dist <= renderDistanceSq and t.dist <= objDistSq + 1 then
+            if t.mesh and t.dist <= (objX-camera.x)^2 + (objZ-camera.z)^2 + 1 then
                 lg.draw(t.mesh)
             end
         end
     end, "replace", 1)
+    lg.setStencilTest("equal", 0)
     
-    love.graphics.setStencilTest("equal", 0)
-    lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha)
-    lg.draw(img, sx, sy, rotation, flip and -scale or scale, scale, w/2, h)
-    love.graphics.setStencilTest()
-    lg.setColor(1,1,1,1)
+    lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
+    lg.draw(img, sx, sy, rotation or 0, flip and -scale or scale, scale, w / 2, h)
+    lg.pop()
 end
 
 function getMouseWorldPos(mx, my, maxDistance)
@@ -456,7 +493,7 @@ function revealUnderground(tile)
     if isCursorOverInteractive() then return end
     if not tile or not tile.subsurface then return end
     for i,mat in ipairs(tile.subsurface) do
-        if mat ~= "air_cave" then
+        if mat ~= "air" then
             tile.texture = materials[mat] or materials.stone
             table.remove(tile.subsurface, i)
             return true
@@ -509,6 +546,11 @@ function isMouseOnItem(mx, my, item, image, scale, sx, sy2)
     return mx >= left and mx <= right and my >= top and my <= bottom
 end
 
+local function getGrassForBiome(tile)
+    if not tile or not tile.biome then return materials.grassNormal end
+    return materials[biomeGrassMap[tile.biome]] or materials.grassNormal
+end
+
 local function tillTile(tile)
     if not tile or tile.isAir then return end
     local matName
@@ -527,15 +569,8 @@ local function tillTile(tile)
 end
 
 local function scheduleDirt(tile)
-    if not tile or tile.isAir then return end
-    local matName
-    for k,v in pairs(materials) do
-        if v == tile.texture then matName = k break end
-    end
-    if matName == "dirt" then
-        if not dirtTimers[tile] then
-            dirtTimers[tile] = math.random() * DIRT_TO_GRASS_TIME
-        end
+    if tile and tile.texture == materials.dirt and tile.biome and not dirtTimers[tile] then
+        dirtTimers[tile] = random() * DIRT_TO_GRASS_TIME
     end
 end
 
@@ -545,15 +580,14 @@ local function updateDirtToGrass(dt)
             scheduleDirt(tile)
         end
     end
-
-    for tile, timeLeft in pairs(dirtTimers) do
-        timeLeft = timeLeft - dt
-        if timeLeft <= 0 then
-            tile.texture = materials.grassNormal
+    for tile, t in pairs(dirtTimers) do
+        t = t - dt
+        if t <= 0 then
+            tile.texture = getGrassForBiome(tile)
             dirtTimers[tile] = nil
             updateTileMeshes(true)
         else
-            dirtTimers[tile] = timeLeft
+            dirtTimers[tile] = t
         end
     end
 end
@@ -589,7 +623,7 @@ function love.mousepressed(mx, my, button)
         local slot = Inventory:getSelected()
 
         if Crafting.open then
-            Crafting:mousepressed(mx, my, button, Inventory, itemTypes)
+            Crafting:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
             return
         end
 
@@ -621,6 +655,30 @@ function love.mousepressed(mx, my, button)
                 damageSelectedItem(1)
                 return
             end
+            if selected then
+                local itemDef = itemTypes[selected.type]
+                if itemDef and itemDef.eatable then
+                    if countryball.hunger < countryball.maxHunger then
+                        countryball.hunger = math.min(countryball.hunger + 1,countryball.maxHunger)
+                        selected.count = selected.count - 1
+                        if selected.count <= 0 then
+                            Inventory.items[Inventory.selectedSlot] = nil
+                        end
+                    end
+                    return
+                end
+            end
+            local selected = Inventory:getSelected()
+            if selected and selected.type == "apple_seed" then
+                local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+                if tile and Props.plantAppleSeed(tile, cx, cz) then
+                    selected.count = selected.count - 1
+                    if selected.count <= 0 then
+                        Inventory.items[Inventory.selectedSlot] = nil
+                    end
+                end
+                return
+            end
         end
         for i = #itemsOnGround, 1, -1 do
             local item = itemsOnGround[i]
@@ -630,7 +688,7 @@ function love.mousepressed(mx, my, button)
                 local img = ItemsModule.getItemImage(item.type)
                 if img and isMouseOnItem(mx, my, item, img, scale, sx, sy2) then
                     if Inventory:hasFreeSlot() or Inventory:canAddEvenIfFull(item.type, itemTypes) then
-                        Inventory:add(item.type, 1, itemTypes)
+                        Inventory:add(item.type, item.count, itemTypes, item.durability)
                         ItemsModule.removeItem(i)
                         return
                     end
@@ -657,7 +715,10 @@ function love.mousepressed(mx, my, button)
                     br.progress = br.progress + multiplier
                     if br.progress >= br.max then
                         revealUnderground(tile)
-                        ItemsModule.dropItem(cx, cy+1, cz, matName)
+                        local selected = Inventory:getSelected()
+                        local itemCount = selected and selected.count or 1
+                        local itemDur = selected and selected.durability or nil
+                        ItemsModule.dropItem(cx, cy+1, cz, matName, itemCount, itemDur, 0)
                         breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
                         br.tile = nil
                         br.progress = 0
@@ -706,8 +767,13 @@ function love.update(dt)
     love.timer.sleep(0.001)
     Cursor.update(dt)
     updateTileMeshes(true)
+
+    if ModAPI.applyChanges() then
+        resetWorldFromMods()
+    end
+    ModAPI.runHooks("update", dt, baseplateTiles, tileGrid)
     if visible_idk.cursor then love.mouse.setVisible(false) else love.mouse.setVisible(true) end
-    if gamestate == "menu" or gamestate == "options"or gamestate == "skins" then
+    if gamestate == "menu" or gamestate == "options"or gamestate == "skins" or gamestate == "mods" then
         local mx, my = love.mouse.getPosition()
         local dx = (mx / base_width - 0.5) * 5
         local dz = (my / base_height - 0.5) * 5
@@ -735,7 +801,7 @@ function love.update(dt)
             if love.keyboard.isDown("w") then camera.pitch = camera.pitch + sp end
             if love.keyboard.isDown("s") then camera.pitch = camera.pitch - sp end
             camera.pitch = clamp(camera.pitch, -1.2, 1.2)
-            countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera)
+            countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
             local zoom = camera.zoom
             local d, h = 12 / zoom, 15 / zoom
             local yaw, pitch = camera.yaw, camera.pitch
@@ -749,13 +815,19 @@ function love.update(dt)
             if countryball.y <= -10 then healthBar:setHealth(0) end
             audioSources.main:play()
             healthBar:update(dt)
+            hungerBar:update(dt)
             Knapping:update(dt)
-            Collision.updateEntity(countryball, dt, tileGrid, Blocks.placed)
+            mobs.update(dt, getTileAt)
+            local cue = Collision.updateEntity
+            cue(countryball, dt, tileGrid, Blocks.placed)
             for _, t in ipairs(itemsOnGround) do
-                Collision.updateEntity(t, dt, tileGrid, Blocks.placed)
+                cue(t, dt, tileGrid, Blocks.placed)
             end
             for _, p in ipairs(Props.props) do
-                Collision.updateEntity(p, dt, tileGrid, Blocks.placed)
+                cue(p, dt, tileGrid, Blocks.placed)
+            end
+            for _, e in ipairs(mobs.entities) do
+                cue(e, dt, tileGrid, Blocks.placed)
             end
             Inventory:update(dt)
             Crafting:update(dt)
@@ -765,12 +837,6 @@ function love.update(dt)
     end
 end
 
-local function drawItemsOnGround()
-    for _, item in ipairs(itemsOnGround) do
-        local img = ItemsModule.getItemImage(item.type)
-        drawWithStencil(item.x, item.y, item.z, img, false)
-    end
-end
 local rayStep = 0.25
 function getTileUnderCursor(mx, my, maxDistance)
     maxDistance = maxDistance or 100
@@ -796,7 +862,7 @@ function getTileUnderCursor(mx, my, maxDistance)
     rayDir.x, rayDir.y, rayDir.z = rayDir.x/len, rayDir.y/len, rayDir.z/len
     
     local px, py, pz = camera.x, camera.y, camera.z
-    local closestDist = math.huge
+    local closestDist = huge
     local hitTile, hitX, hitY, hitZ
 
     for t = 0, maxDistance, rayStep do
@@ -829,27 +895,61 @@ function drawTiles()
     camera:updateProjectionConstants()
     if visible_idk.skyBox then
         local lightFactor = (nightCycle.getLight and nightCycle.getLight() or 1.0)
-        lg.setColor(lightFactor,lightFactor,lightFactor,1)
+        lg.setColor(lightFactor, lightFactor, lightFactor, 1)
         skyBox.draw()
-        lg.setColor(1,1,1,1)
+        lg.setColor(1, 1, 1, 1)
     end
-    for i=1,#preloadedTiles do
-        local t = preloadedTiles[i]
-        if t.mesh then
-            lg.draw(t.mesh)
+    local blockEntries = Blocks.generate(camera, renderDistanceSq)
+    Blocks.ensureAllMeshes(blockEntries)
+    local terrain = {}
+    for i=1, #preloadedTiles do terrain[#terrain+1] = preloadedTiles[i] end
+    for i=1, #blockEntries do terrain[#terrain+1] = blockEntries[i] end
+    
+    table.sort(terrain, function(a, b) return a.dist > b.dist end)
+    for _, e in ipairs(terrain) do
+        lg.setColor(e.color or {1, 1, 1})
+        lg.draw(e.mesh or e.verts)
+    end
+    local renderQueue = {}
+    for _, p in ipairs(Props.props) do
+        table.insert(renderQueue, {
+            dist = (p.x - camera.x)^2 + (p.z - camera.z)^2,
+            type = "prop",
+            obj = p
+        })
+    end
+    for _, mob in ipairs(mobs.entities) do
+        table.insert(renderQueue, {
+            dist = (mob.x - camera.x)^2 + (mob.z - camera.z)^2,
+            type = "mob",
+            obj = mob
+        })
+    end
+
+    for _, item in ipairs(itemsOnGround) do
+        table.insert(renderQueue, {dist = (item.x - camera.x)^2 + (item.z - camera.z)^2,type = "item",obj = item})
+    end
+    table.insert(renderQueue, {dist = (countryball.x - camera.x)^2 + (countryball.z - camera.z)^2,type = "player",obj = countryball})
+    table.sort(renderQueue, function(a, b) return a.dist > b.dist end)
+    for _, entry in ipairs(renderQueue) do
+        if entry.type == "prop" then
+            local singlePropTable = { entry.obj } 
+            Props.drawProps(singlePropTable, drawWithStencil)
+        elseif entry.type == "item" then
+            local img = ItemsModule.getItemImage(entry.obj.type)
+            drawWithStencil(entry.obj.x, entry.obj.y, entry.obj.z, img, false)
+        elseif entry.type == "player" then
+            countryball.draw(drawWithStencil, Inventory, ItemsModule)
+        elseif entry.type == "mob" then
+            mobs.draw(drawWithStencil) 
         end
     end
+    ModAPI.runHooks("draw")
 end
 
 function mainGame()
     lg.setDepthMode("lequal", true)
     drawTiles()
-    local blockEntries = Blocks.generate(camera, renderDistanceSq)
-    Blocks.ensureAllMeshes(blockEntries)
-    Blocks.draw(blockEntries)
-    Props.drawProps(drawWithStencil)
-    drawItemsOnGround()
-    countryball.draw(drawWithStencil, Inventory, ItemsModule)
     lg.setDepthMode()
     local tile, cx, cy, cz = getTileUnderCursor(love.mouse.getX(), love.mouse.getY())
     if tile then
@@ -863,6 +963,7 @@ function mainGame()
     end
 
     healthBar:draw()
+    hungerBar:draw()
     Crafting:draw(Inventory, itemTypes, items)
     Knapping:draw(Inventory, itemTypes)
     Inventory:draw(itemTypes)
@@ -918,16 +1019,17 @@ function love.draw()
         OptMenu:draw()
     elseif gamestate == "mods" then
         drawTiles()
+        ModsMenu:draw()
     elseif gamestate == "skins" then
         drawTiles()
         SkinsMenu:draw()
     end
-    lg.print(string.format("nightCycle: %.2f | Pitch: %.2f | FPS: %d X: %.2f Z: %.2f | WIP GAME",nightCycle.getLight(), camera.pitch, love.timer.getFPS(), camera.x, camera.z),10, 10)
+    utils.drawTextWithBorder("FPS: "..love.timer.getFPS(), 10, 5)
     if visible_idk.cursor then
         Cursor.draw()
     end
 end
-
+local bw, bh= 50, 50
 function love.load()
     love.window.setMode(base_width, base_height, {resizable=false, vsync=true, depth = 24, stencil = 8, msaa = 0, highdpi = false})
     love.window.setTitle("A Random Countryball Game")
@@ -954,8 +1056,10 @@ function love.load()
             baseplateTiles._tileChunks = tileChunks
         end
     else
-        createBaseplate(100,100)
+        createBaseplate(bw,bh)
     end
+    Props.spawnProps(50, bw, bh, getTileAt)
+    mobs.spawn("racoon_dog", 14, 14, getTileAt)
     Cursor.load()
     font = lg.newFont("font/font.ttf", 26)
     lg.setFont(font)
@@ -963,6 +1067,7 @@ function love.load()
 
     SkinsMenu.load()
     SkinsMenu.applySkin("countryball")
+    ModsMenu.load()
 
     for name, path in pairs(songs) do
         audioSources[name] = love.audio.newSource(path, "stream")
@@ -1014,6 +1119,8 @@ function love.keypressed(key)
         elseif key == "return" then
             if menuItems[selectedIndex] == "Play" then
                 gamestate = "game"
+            elseif menuItems[selectedIndex] == "Mods" then
+                gamestate = "mods"
             elseif menuItems[selectedIndex] == "Skins" then
                 gamestate = "skins"
             elseif menuItems[selectedIndex] == "Options" then
@@ -1084,6 +1191,10 @@ function love.keypressed(key)
         end
     elseif gamestate == "skins" then
         SkinsMenu:keypressed(key)
+        if key == "escape" then gamestate = "menu" end
+    elseif gamestate == "mods" then
+        ModsMenu:keypressed(key)
+        ModAPI.reset()
         if key == "escape" then gamestate = "menu" end
     end
 end

@@ -17,10 +17,7 @@ Knap.stoneSlot = lg.newImage("image/bar/stone.png")
 Knap.outputBar = lg.newImage("image/bar/give.png")
 Knap.recipes = knapping_recipes.recipes
 
-local function easeInOutQuad(t)
-    if t < 0.5 then return 2*t*t end
-    return -1 + (4 - 2*t)*t
-end
+local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
 
 function Knap:resetGrid()
     for i = 1, 25 do
@@ -111,6 +108,8 @@ function Knap:mousepressed(mx, my, btn, inventory, itemTypes, ItemsModule, count
 
         if inventory:hasFreeSlot() then
             inventory:add(self.craftedItem, 1, itemTypes)
+        else
+            ItemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.craftedItem, 1)
         end
         Knap.open = false
         self:resetGrid()

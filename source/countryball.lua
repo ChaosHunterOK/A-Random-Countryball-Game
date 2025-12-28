@@ -5,7 +5,7 @@ local floor, sqrt, abs, sin, cos, max, min = math.floor, math.sqrt, math.abs, ma
 
 local countryball = {
     x = 10, y = 10, z = 10,
-    health = 10,
+    health = 3,
     maxHealth = 3,
     speed = 4,
     flip = false,
@@ -30,6 +30,8 @@ local countryball = {
     shakeTime = 0,
     shakeDuration = 0.25,
     shakeStrength = 0.25,
+    hungerExhaustion = 0,
+    hungerDecayRate = 0.05,
 }
 
 function countryball:takeDamage(amount, dirX, dirZ)
@@ -64,7 +66,7 @@ local function getFrames(animImages, animName, dt, state)
     return frames[state.frameIndex]
 end
 
-function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks, camera)
+function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
     local dx, dz = 0, 0
     local moveX, moveZ = 0, 0
 
@@ -81,6 +83,9 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
     if rlen > 0 then
         right.x, right.z = right.x / rlen, right.z / rlen
     end
+
+    local exhaustionIncrease = 0
+    exhaustionIncrease = exhaustionIncrease + countryball.hungerDecayRate * dt
 
     if not countryball.isDamaged then
         if keyboard.isDown("up") then
@@ -112,6 +117,10 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
     end
     local len = sqrt(moveX*moveX + moveZ*moveZ)
     local moving = len > 0
+
+    if not countryball.onGround and countryball.velocityY > 0 then
+        exhaustionIncrease = exhaustionIncrease + 0.5 * dt
+    end
 
     local tile = nil
     if getTileAt then
@@ -171,9 +180,24 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
     countryball.z = countryball.z + dz
 
     if moving then
+        exhaustionIncrease = exhaustionIncrease + 0.1 * dt
         moveX, moveZ = moveX / len, moveZ / len
         countryball.x = countryball.x + moveX * moveSpeed * dt
         countryball.z = countryball.z + moveZ * moveSpeed * dt
+    end
+
+    countryball.hungerExhaustion = countryball.hungerExhaustion + exhaustionIncrease
+    if countryball.hungerExhaustion >= 3.0 then
+        countryball.hunger = math.max(0, countryball.hunger - 1)
+        countryball.hungerExhaustion = 0
+    end
+
+    if countryball.hunger <= 0 then
+        countryball.starveTimer = (countryball.starveTimer or 0) + dt
+        if countryball.starveTimer >= 5 then
+            healthBar:damageHealth(1, 0, 0)
+            countryball.starveTimer = 0
+        end
     end
 
     if countryball.inWater and tile then

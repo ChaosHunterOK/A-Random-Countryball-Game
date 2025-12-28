@@ -18,30 +18,21 @@ Crafting.hoveredItem = nil
 Crafting.previewItem = nil
 Crafting.craftSound = love.audio.newSource("sounds/craft.ogg", "static")
 
-local function easeInOutQuad(t)
-    if t < 0.5 then return 2*t*t end
-    return -1 + (4 - 2*t)*t
-end
+local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
 local function easeInOutExpo(t)
-    if t == 0 then return 0 end
-    if t == 1 then return 1 end
-    if t < 0.5 then return 2^(20*t-10)/2 end
-    return (2 - 2^(-20*t+10))/2
+    if t==0 then return 0 end
+    if t==1 then return 1 end
+    return t<0.5 and 2^(20*t-10)/2 or (2-2^(-20*t+10))/2
 end
 
 function Crafting:update(dt)
-    if self.open and self.anim < 1 then
+    local direction = self.open and 1 or -1
+    if (self.open and self.anim<1) or (not self.open and self.anim>0) then
         self.timer = math.min(self.timer + dt, self.duration)
         local t = self.timer / self.duration
-        self.anim = easeInOutQuad(t)
-        self.bgAlpha = 0.25 * self.anim
-    elseif not self.open and self.anim > 0 then
-        self.timer = math.min(self.timer + dt, self.duration)
-        local t = self.timer / self.duration
-        self.anim = 1 - easeInOutQuad(t)
+        self.anim = self.open and easeInOutQuad(t) or 1 - easeInOutQuad(t)
         self.bgAlpha = 0.25 * self.anim
     end
-
     self.craftedItem = self:checkRecipe()
 end
 
@@ -109,19 +100,36 @@ function Crafting:draw(inventory, itemTypes, items)
     lg.draw(self.outputBar, outputX, outputY, 0, scale, scale)
 
     if self.craftedItem then
-        local itemImg = items[self.craftedItem]
+        local itemImg = items[self.craftedItem.type]
         if itemImg then
             local iw, ih = itemImg:getWidth(), itemImg:getHeight()
             local t = easeInOutExpo(self.anim)
             lg.draw(itemImg, outputX + barWidth/2, outputY + barHeight/2, 0, scale*t, scale*t, iw/2, ih/2)
+            utils.drawTextWithBorder(self.craftedItem.count,outputX + 12 * scale,outputY + 8 * scale)
         end
     end
 
     if self.draggingSlot then
-        local slot = self.slots[self.draggingSlot] or {type=inventory.heldItem, count=inventory.heldCount, durability = inventory.heldDurability or itemTypes[inventory.heldItem].durability}
+        local slot
+        if self.slots[self.draggingSlot] then
+            slot = self.slots[self.draggingSlot]
+        elseif inventory.heldItem then
+            slot = {
+                type = inventory.heldItem,
+                count = inventory.heldCount or 1,
+                durability = inventory.heldDurability or (itemTypes[inventory.heldItem] and itemTypes[inventory.heldItem].durability)
+            }
+        else
+            slot = nil
+        end
+
         if slot and slot.type then
             local itemImg = itemTypes[slot.type] and itemTypes[slot.type].img
             if itemImg then
+                local mx, my = love.mouse.getPosition()
+                local scaleX = lg.getWidth()/1000
+                local scaleY = lg.getHeight()/525
+                local scale = math.min(scaleX, scaleY)
                 lg.setColor(1,1,1,1)
                 lg.draw(itemImg, mx - 16*scale, my - 16*scale, 0, scale, scale)
                 utils.drawTextWithBorder(slot.count or 1, mx + 10*scale, my + 10*scale)
@@ -131,7 +139,7 @@ function Crafting:draw(inventory, itemTypes, items)
 
     if self.hoveredItem and itemTypes[self.hoveredItem] then
         lg.setColor(0,0,0,0.7)
-        local name = self.hoveredItem
+        local name = string.gsub(self.hoveredItem, "_", " ")
         local w = lg.getFont():getWidth(name) + 10
         local h = lg.getFont():getHeight() + 6
         lg.rectangle("fill", mx + 8, my - h - 8, w, h)
@@ -145,7 +153,7 @@ function Crafting:toggle()
     self.timer = 0
 end
 
-function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule)
+function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule, countryball)
     local scaleX = lg.getWidth() / 1000
     local scaleY = lg.getHeight() / 525
     local scale = math.min(scaleX, scaleY)
@@ -156,33 +164,36 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
     local startY = lg.getHeight() / 2 + 355 * (1 - self.anim) - 100
     local outputX = startX + totalWidth + spacing * 2
     local outputY = startY + (barHeight + spacing) / 2
-
     if (button == 1 or button == 2) and self.craftedItem and mx >= outputX and mx <= outputX + barWidth and my >= outputY and my <= outputY + barHeight then
-        if inventory:hasFreeSlot() then
-            local maxDur = itemTypes[self.craftedItem].durability
+        local outType = self.craftedItem.type
+        local outCount = self.craftedItem.count
+        local maxDur = itemTypes[outType].durability or nil
 
-            inventory:add(self.craftedItem, 1, itemTypes)
+        if inventory:hasFreeSlot() then
+            inventory:add(outType, outCount, itemTypes)
             for i = inventory.maxSlots, 1, -1 do
                 local slot = inventory.items[i]
-                if slot and slot.type == self.craftedItem then
+                if slot and slot.type == outType then
                     slot.durability = maxDur
                     break
                 end
             end
+        else
+            itemsModule.dropItem(countryball.x + 0.6,countryball.y + 0.5,countryball.z + 0.1,outType,outCount,maxDur)
+        end
 
-            for i = 1, 4 do
-                local slot = self.slots[i]
-                if slot then
-                    slot.count = slot.count - 1
-                    if slot.count <= 0 then
-                        self.slots[i] = nil
-                    end
+        for i = 1, 4 do
+            local slots = self.slots[i]
+            if slots then
+                slots.count = slots.count - 1
+                if slots.count <= 0 then
+                    self.slots[i] = nil
                 end
             end
-
-            love.audio.play(self.craftSound)
-            self.craftedItem = self:checkRecipe()
         end
+
+        love.audio.play(self.craftSound)
+        self.craftedItem = self:checkRecipe()
         return
     end
 
@@ -191,81 +202,52 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
         local row = math.floor((i - 1) / 2)
         local x = startX + col * (barWidth + spacing)
         local y = startY + row * (barHeight + spacing)
-        local slot = self.slots[i]
 
         if mx >= x and mx <= x + barWidth and my >= y and my <= y + barHeight then
-            if slot and slot.count then
-                if not inventory.heldItem then
-                    if button == 1 then
-                        self.slots[i] = nil
-                        inventory.heldItem = slot.type
-                        inventory.heldCount = slot.count
-                        self.draggingSlot = nil
-                        self.isDragging = false
-                    elseif button == 2 then
-                        inventory.heldItem = slot.type
-                        inventory.heldCount = 1
-                        slot.count = slot.count - 1
-                        if slot.count <= 0 then self.slots[i] = nil end
-                    end
-                    self.draggingSlot = i
-                    self.isDragging = true
-                    return
+            local slot = self.slots[i]
+            if slot and not inventory.heldItem then
+                if button == 1 then
+                    inventory.heldItem = slot.type
+                    inventory.heldCount = slot.count
+                    inventory.heldDurability = slot.durability
+                    self.slots[i] = nil
+                elseif button == 2 then
+                    inventory.heldItem = slot.type
+                    inventory.heldCount = 1
+                    inventory.heldDurability = slot.durability
+                    slot.count = slot.count - 1
+                    if slot.count <= 0 then self.slots[i] = nil end
                 end
-                if inventory.heldItem == slot.type then
-                    local stackLimit = itemTypes[slot.type].stack or 1
-                    if button == 2 then
-                        if slot.count < stackLimit then
-                            slot.count = slot.count + 1
-                            inventory.heldCount = inventory.heldCount - 1
-                            if inventory.heldCount <= 0 then
-                                inventory.heldItem = nil
-                                inventory.heldCount = 0
-                            end
-                        end
-                        return
+                self.draggingSlot = i
+                return
+            elseif inventory.heldItem then
+                local stackLimit = itemTypes[inventory.heldItem].stack or 1
+                if not slot then
+                    if button == 1 then
+                        self.slots[i] = {type = inventory.heldItem, count = inventory.heldCount, durability = inventory.heldDurability}
+                        inventory.heldItem, inventory.heldCount = nil, 0
+                    elseif button == 2 then
+                        self.slots[i] = { type = inventory.heldItem, count = 1, durability = inventory.heldDurability}
+                        inventory.heldCount = inventory.heldCount - 1
+                        if inventory.heldCount <= 0 then inventory.heldItem = nil end
+                    end
+                elseif slot.type == inventory.heldItem then
+                    if button == 2 and slot.count < stackLimit then
+                        slot.count = slot.count + 1
+                        inventory.heldCount = inventory.heldCount - 1
                     elseif button == 1 then
                         local canTake = math.min(inventory.heldCount, stackLimit - slot.count)
                         slot.count = slot.count + canTake
                         inventory.heldCount = inventory.heldCount - canTake
-                        if inventory.heldCount <= 0 then
-                            inventory.heldItem = nil
-                            inventory.heldCount = 0
-                        end
-                        return
                     end
-                else
-                    local prev = { type = slot.type, count = slot.count }
-                    self.slots[i] = { type = inventory.heldItem, count = inventory.heldCount }
-                    inventory.heldItem = prev.type
-                    inventory.heldCount = prev.count
-                    self.draggingSlot = i
-                    return
+                    if inventory.heldCount <= 0 then inventory.heldItem = nil end
+                elseif button == 1 then
+                    local temp = { type = slot.type, count = slot.count, durability = slot.durability }
+                    self.slots[i] = {type = inventory.heldItem, count = inventory.heldCount, durability = inventory.heldDurability}
+                    inventory.heldItem = temp.type
+                    inventory.heldCount = temp.count
+                    inventory.heldDurability = temp.durability
                 end
-            else
-                if inventory.heldItem then
-                    local stackLimit = itemTypes[inventory.heldItem].stack or 1
-                    if button == 1 then
-                        local toPlace = math.min(inventory.heldCount, stackLimit)
-                        self.slots[i] = { type = inventory.heldItem, count = toPlace }
-                        inventory.heldCount = inventory.heldCount - toPlace
-                        if inventory.heldCount <= 0 then
-                            inventory.heldItem = nil
-                            inventory.heldCount = 0
-                        end
-                    elseif button == 2 then
-                        self.slots[i] = { type = inventory.heldItem, count = 1 }
-                        inventory.heldCount = inventory.heldCount - 1
-                        if inventory.heldCount <= 0 then
-                            inventory.heldItem = nil
-                            inventory.heldCount = 0
-                        end
-                    end
-                    return
-                end
-            end
-
-            if inventory.heldItem and self.draggingSlot == i then
                 return
             end
         end
@@ -290,7 +272,9 @@ function Crafting:checkRecipe()
                 break
             end
         end
-        if match then return recipe.output end
+        if match then
+            return recipe.output
+        end
     end
     return nil
 end

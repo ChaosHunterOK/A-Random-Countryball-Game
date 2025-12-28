@@ -55,36 +55,26 @@ knapping_recipes.recipes = {
         },
         output = "stone_pick_head"
     },
-    --[[{
+    {
         input = {
-            nil,   "stone", nil,   "stone", nil,
-            nil,   "stone", "stone","stone", nil,
-            nil,   nil,     "stone", nil,    nil,
-            nil,   nil,     nil,     nil,    nil,
-            nil,   nil,     nil,     nil,    nil,
+            nil,  "stone", nil,   nil, nil,
+            nil,"stone", "stone",nil, nil,
+            nil,"stone", "stone", nil, nil,
+            nil,   "stone",    "stone",     nil,    nil,
+            nil,   "stone",     "stone",     nil,    nil,
         },
-        output = "sharp_stone"
+        output = "stone_knife_head"
     },
     {
         input = {
-            "stone", "stone", "stone", nil,     nil,
-            nil,      "stone", nil,    nil,     nil,
-            nil,      "stone", nil,    nil,     nil,
-            nil,      "stone", nil,    nil,     nil,
-            "stone",  "stone", "stone", nil,    nil,
+            "stone",   "stone", "stone",   nil, nil,
+            "stone",   "stone", "stone","stone", nil,
+            "stone",   "stone", "stone", "stone",    "stone",
+            nil,   "stone",     "stone",     "stone",    nil,
+            nil,   nil,     "stone",     nil,    nil,
         },
-        output = "stone_blade"
+        output = "javeline_stone_head"
     },
-    {
-        input = {
-            nil,     "stone", "stone", "stone", nil,
-            nil,     "stone", nil,     nil,     nil,
-            nil,     "stone", "stone", nil,     nil,
-            nil,     nil,     "stone", nil,     nil,
-            nil,     nil,     nil,     nil,     nil,
-        },
-        output = "stone_axe_head"
-    },]]
 }
 
 return knapping_recipes

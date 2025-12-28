@@ -4,8 +4,8 @@ local countryball = require "source.countryball"
 local utils = require("source.utils")
 
 local healthBar = {
-    health = countryball.health or 5,
-    maxHealth = countryball.maxHealth or 5,
+    health = countryball.health or 3,
+    maxHealth = countryball.maxHealth or 3,
     heart = lg.newImage("image/bar/heart.png"),
     gold_heart = lg.newImage("image/bar/gold_heart.png"),
     heart_damaged = lg.newImage("image/bar/heart_damage.png"),
@@ -40,10 +40,10 @@ function healthBar:setHealth(value)
     self.lastHealth = value
 end
 
-function healthBar:damageHealth(amount)
+function healthBar:damageHealth(amount, x, z)
     if amount <= 0 then return end
     self:setHealth(self.health - amount)
-    countryball:takeDamage(amount)
+    countryball:takeDamage(amount, x, z)
 end
 
 function healthBar:update(dt)

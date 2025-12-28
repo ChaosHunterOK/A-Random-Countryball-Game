@@ -7,27 +7,39 @@ recipe.recipes = {
     },]] --will let this here
     {
         input = {"stone", nil, "stick", nil},
-        output = "stone_tool"
+        output = {type = "stone_tool", count = 1}
     },
     {
         input = {"stick", nil, nil, "stick"},
-        output = "firestarter"
+        output = {type = "firestarter", count = 1}
     },
     {
         input = {"stone_shovel_head", nil, "stick", nil},
-        output = "stone_shovel"
+        output = {type = "stone_shovel", count = 1}
     },
     {
         input = {"stone_hoe_head", nil, "stick", nil},
-        output = "stone_hoe"
+        output = {type = "stone_hoe", count = 1}
     },
     {
         input = {"stone_hammer_head", nil, "stick", nil},
-        output = "stone_hammer"
+        output = {type = "stone_hammer", count = 1}
     },
     {
         input = {"stone_pick_head", nil, "stick", nil},
-        output = "stone_pickaxe"
+        output = {type = "stone_pickaxe", count = 1}
+    },
+    {
+        input = {"stone_knife_head", nil, "stick", nil},
+        output = {type = "stone_knife", count = 1}
+    },
+    {
+        input = {"green_apple", nil, nil, nil},
+        output = {type = "apple_seed", count = 4}
+    },
+    {
+        input = {"apple", nil, nil, nil},
+        output = {type = "apple_seed", count = 4}
     },
 }
 

@@ -1,6 +1,5 @@
 local ffi = require "ffi"
 local love = require "love"
-local gl = require "source.gl.opengl"
 local utils = require("source.utils")
 local lg = love.graphics
 local m = math
@@ -13,6 +12,8 @@ typedef struct { double dirx, dirz, amplitude, k, speed, steepness, uvSpeed; } W
 
 local Verts = {}
 local time = 0
+local result_table = {}
+local gerstner_cache = {}
 
 local waveDefs = {
     {dir={1,0.3}, amplitude=0.12, wavelength=6, speed=1.2, steepness=0.9, uvSpeed=0.08},
@@ -66,6 +67,9 @@ for i = 1, MAX_OUT do
 end
 
 local function gerstner_f(x, z)
+    local key = x * 10000 + z
+    if gerstner_cache[key] then return gerstner_cache[key][1], gerstner_cache[key][2], gerstner_cache[key][3] end
+    
     local y, ox, oz = 0.0, 0.0, 0.0
     for i = 0, WN-1 do
         local w = waves_ffi[i]
@@ -76,6 +80,7 @@ local function gerstner_f(x, z)
         ox = ox + a * (w.dirx / w.k) * c
         oz = oz + a * (w.dirz / w.k) * c
     end
+    gerstner_cache[key] = {y, ox, oz}
     return y, ox, oz
 end
 
@@ -94,8 +99,6 @@ local function buildMesh(mesh, vertices, uvOffset, vRepeat, texture, fallback, c
     local r, g, b, a = 1, 1, 1, 1
     if type(color) == "table" then
         r, g, b = clamp01(color[1]), clamp01(color[2]), clamp01(color[3])
-    elseif type(color) == "number" then
-        r, g, b = clamp01(color[1]), clamp01(color[2]), clamp01(color[3])
     end
 
     mesh:setVertices({
@@ -104,11 +107,12 @@ local function buildMesh(mesh, vertices, uvOffset, vRepeat, texture, fallback, c
         {vertices[5], vertices[6], 1 + uvOffset.u, (vRepeat or 1) + uvOffset.v, r, g, b, a},
         {vertices[7], vertices[8], 0 + uvOffset.u, (vRepeat or 1) + uvOffset.v, r, g, b, a},
     })
-
     local tex = texture or fallback
     if tex then
         tex:setWrap("repeat", "repeat")
         mesh:setTexture(tex)
+    else
+        print("lol")
     end
 end
 
@@ -132,10 +136,6 @@ local function isTileInRangeFast(tile, camX, camZ, renderDistanceSq)
     local cz = (v1[3] + v3[3]) * 0.5
     local dx, dz = cx - camX, cz - camZ
     return (dx*dx + dz*dz) <= renderDistanceSq
-end
-
-local function projBufToLuaArray(buf)
-    return { buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7] }
 end
 
 local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
@@ -168,6 +168,7 @@ local function dot(ax,ay,az, bx,by,bz) return ax*bx + ay*by + az*bz end
 
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end
+    gerstner_cache = {}
     camera:updateProjectionConstants()
     local camX, camZ = camera.x, camera.z
     local uvU, uvV = 0.0, 0.0
@@ -179,22 +180,17 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     end
     uvU, uvV = (uvU * time) % 1.0, (uvV * time) % 1.0
     local sunAngle = (night.time / (night.dayLength)) * (2 * pi)
-    local sunDirX = math.cos(sunAngle)
-    local sunDirY = math.sin(sunAngle) * 0.65 + 0.35
-    local sunDirZ = math.sin(sunAngle + 0.7)
+    local sunDirX = cos(sunAngle)
+    local sunDirY = sin(sunAngle) * 0.65 + 0.35
+    local sunDirZ = sin(sunAngle + 0.7)
     sunDirX, sunDirY, sunDirZ = utils.normalize(sunDirX, sunDirY, sunDirZ)
 
     local textureMul = night.getTextureMultiplier() or {1,1,1}
-    local r = textureMul[1]
-    local g = textureMul[2]
-    local b = textureMul[3]
-    local avgMul = (textureMul[1] + textureMul[2] + textureMul[3]) / 3
-
+    local r, g, b = textureMul[1], textureMul[2], textureMul[3]
+    local avgMul = (r + g + b) * 0.33333
     local lightFactor = (night.getLight and night.getLight() or 1.0)
-    local lightCurve = lightFactor * lightFactor
-    local ambient = 0.05 + 1 * lightCurve
+    local ambient = 0.05 + (lightFactor * lightFactor)
 
-    local out = {}
     local outCount = 0
 
     for t = 1, #tiles do
@@ -331,11 +327,11 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         end
         ::continue::
     end
-
-    local result = {}
-    for i = 1, outCount do result[i] = outPool[i] end
-    table.sort(result, function(a,b) return a.dist > b.dist end)
-    return result
+    for i = 1, #result_table do result_table[i] = nil end
+    for i = 1, outCount do result_table[i] = outPool[i] end
+    table.sort(result_table, function(a,b) return a.dist > b.dist end)
+    
+    return result_table
 end
 
 Verts.meshPool = {}

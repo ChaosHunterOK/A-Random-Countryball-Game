@@ -154,4 +154,12 @@ function utils.toByte(v, gamma)
     return floor(v * 255 + 0.5)
 end
 
+function utils.tileKey(x, z)
+    return floor(x) .. ":" .. floor(z)
+end
+
+function utils.getChunkKey(cx, cz)
+    return cx * 10000 + cz
+end
+
 return utils

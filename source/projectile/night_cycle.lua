@@ -1,8 +1,8 @@
 local night = {}
 
-night.time = 0
-night.dayLength = 125
-night.light = 2
+night.dayLength = 180
+night.time = night.dayLength / 2
+night.light = 1
 night.skyColor = {0.45, 0.70, 1.0}
 night.nightColor = {0.03, 0.03, 0.07}
 night.currentColor = {0.45, 0.70, 1.0}

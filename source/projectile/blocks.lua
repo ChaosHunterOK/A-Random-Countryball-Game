@@ -1,4 +1,3 @@
-local ffi = require "ffi"
 local love = require "love"
 local utils = require("source.utils")
 local lg = love.graphics
@@ -55,27 +54,42 @@ Blocks.currentBreaking = {
     max = 1,
 }
 
-local function makeCubeFaces(x, y, z, size, texture)
-    local s = size / 2
-    local v1 = {x - s, y - s, z - s}
-    local v2 = {x + s, y - s, z - s}
-    local v3 = {x + s, y + s, z - s}
-    local v4 = {x - s, y + s, z - s}
-    local v5 = {x - s, y - s, z + s}
-    local v6 = {x + s, y - s, z + s}
-    local v7 = {x + s, y + s, z + s}
-    local v8 = {x - s, y + s, z + s}
+local function makeCubeFaces(x, y, z, size, texture, baseTiles)
+    local tile = getUnderlyingTile(x, z, baseTiles)
+    local baseY = y
+    local h00 = sampleTileHeightAt(tile, x - 0.5, z - 0.5) or baseY
+    local h10 = sampleTileHeightAt(tile, x + 0.5, z - 0.5) or baseY
+    local h11 = sampleTileHeightAt(tile, x + 0.5, z + 0.5) or baseY
+    local h01 = sampleTileHeightAt(tile, x - 0.5, z + 0.5) or baseY
+
+    local top = y + 1.0
+    local v1 = {x - 0.5, h00, z - 0.5}
+    local v2 = {x + 0.5, h10, z - 0.5}
+    local v5 = {x - 0.5, h01, z + 0.5}
+    local v6 = {x + 0.5, h11, z + 0.5}
+
+    local v4 = {x - 0.5, top, z - 0.5}
+    local v3 = {x + 0.5, top, z - 0.5}
+    local v8 = {x - 0.5, top, z + 0.5}
+    local v7 = {x + 0.5, top, z + 0.5}
+
     return {
+        -- front
         {v1, v2, v3, v4, texture},
-        {v5, v6, v7, v8, texture},
-        {v1, v5, v8, v4, texture},
+        -- back
+        {v6, v5, v8, v7, texture},
+        -- left
+        {v5, v1, v4, v8, texture},
+        -- right
         {v2, v6, v7, v3, texture},
+        -- top
         {v4, v3, v7, v8, texture},
-        {v1, v2, v6, v5, texture},
+        -- bottom
+        {v1, v5, v6, v2, texture},
     }
 end
 
-local function getUnderlyingTile(x, z, baseTiles)
+function getUnderlyingTile(x, z, baseTiles)
     if not baseTiles then return nil end
     for i = 1, #baseTiles do
         local tile = baseTiles[i]
@@ -87,6 +101,22 @@ local function getUnderlyingTile(x, z, baseTiles)
         end
     end
     return nil
+end
+
+function sampleTileHeightAt(tile, x, z)
+    if not tile then return nil end
+    local v1, v2, v3, v4 = tile[1], tile[2], tile[3], tile[4]
+
+    local fx = x - floor(x)
+    local fz = z - floor(z)
+
+    local h =
+        v1[2] * (1-fx) * (1-fz) +
+        v2[2] * fx * (1-fz) +
+        v3[2] * fx * fz +
+        v4[2] * (1-fx) * fz
+
+    return h
 end
 
 local night = require"source.projectile.night_cycle"
@@ -118,7 +148,7 @@ function Blocks.generate(camera, renderDistanceSq)
 
     for bi = 1, #Blocks.placed do
         local block = Blocks.placed[bi]
-        local cubeFaces = makeCubeFaces(block.x, block.y, block.z, 1, Blocks.materials[block.type])
+        local cubeFaces = makeCubeFaces(block.x,block.y,block.z,1,Blocks.materials[block.type],Blocks.baseTiles)
         for fi = 1, #cubeFaces do
             local face = cubeFaces[fi]
             local verts = {}
@@ -158,7 +188,8 @@ function Blocks.generate(camera, renderDistanceSq)
                         verts = verts,
                         dist = distSq,
                         texture = face[5],
-                        color = finalColor
+                        color = finalColor,
+                        isBlock = true
                     }
                 end
             end
@@ -169,17 +200,15 @@ function Blocks.generate(camera, renderDistanceSq)
     return entries
 end
 
-local function makeVertsMeshFromVerts(verts, color)
-    local r = floor((color[1] or 1) * 255)
-    local g = floor((color[2] or 1) * 255)
-    local b = floor((color[3] or 1) * 255)
-    local a = 255
+local function makeVertsMeshFromVerts(verts, color, heightDiff)
+    local r, g, b, a = floor(color[1]*255), floor(color[2]*255), floor(color[3]*255), 255
+    local vRepeat = math.max(1, heightDiff or 1)
 
     return {
         {verts[1], verts[2], 0, 0, r, g, b, a},
         {verts[3], verts[4], 1, 0, r, g, b, a},
-        {verts[5], verts[6], 1, 1, r, g, b, a},
-        {verts[7], verts[8], 0, 1, r, g, b, a},
+        {verts[5], verts[6], 1, vRepeat, r, g, b, a},
+        {verts[7], verts[8], 0, vRepeat, r, g, b, a},
     }
 end
 
