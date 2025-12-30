@@ -37,8 +37,9 @@ local propTypes = {
         maxHealth = 10, 
         name = "Tree", 
         bestTool = "axe", 
-        reward = "oak", 
-        count = {2, 6}, 
+        rewards = {
+            {item = "oak", count = {3, 7}}
+        },
         isTree = true,
         spawnOn = {"grassNormal", "grassHot", "grassCold"}
     },

@@ -7,13 +7,18 @@ local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
 
 ffi.cdef[[
+typedef struct {
+    float x, y;
+    float u, v;
+    float r, g, b, a;
+} Vertex;
+
 typedef struct { double dirx, dirz, amplitude, k, speed, steepness, uvSpeed; } Wave;
 ]]
 
 local Verts = {}
 local time = 0
 local result_table = {}
-local gerstner_cache = {}
 
 local waveDefs = {
     {dir={1,0.3}, amplitude=0.12, wavelength=6, speed=1.2, steepness=0.9, uvSpeed=0.08},
@@ -54,41 +59,32 @@ local S4 = {0, 0, 0}
 
 function Verts.setTime(t) time = t or 0 end
 
+local meshFormat = {
+    {"VertexPosition", "float", 2},
+    {"VertexTexCoord", "float", 2},
+    {"VertexColor", "float",  4},
+}
+
 local MAX_QUADS = 4000
 local VERTS_PER_QUAD = 4
-local MAX_OUT = 8000
 local outPool = {}
-for i = 1, MAX_OUT do
-    outPool[i] = {
-        verts = {0,0,0,0,0,0,0,0},
-        brightness = {0,0,0},
-        uvOffset = {u=0, v=0}
-    }
+for i = 1, MAX_QUADS * 2 do
+    outPool[i] = {verts = ffi.new("double[8]"), brightness = {0,0,0}, uv = {0,0}}
 end
 
 local function gerstner_f(x, z)
-    local key = x * 10000 + z
-    if gerstner_cache[key] then return gerstner_cache[key][1], gerstner_cache[key][2], gerstner_cache[key][3] end
-    
     local y, ox, oz = 0.0, 0.0, 0.0
     for i = 0, WN-1 do
         local w = waves_ffi[i]
         local phase = (w.dirx * x + w.dirz * z) - timeK_ffi[i]
         local s, c = sin(phase), cos(phase)
         y = y + w.amplitude * s
-        local a = w.steepness * w.amplitude
-        ox = ox + a * (w.dirx / w.k) * c
-        oz = oz + a * (w.dirz / w.k) * c
+        local a = (w.steepness * w.amplitude) / w.k
+        ox = ox + a * w.dirx * c
+        oz = oz + a * w.dirz * c
     end
-    gerstner_cache[key] = {y, ox, oz}
     return y, ox, oz
 end
-
-local meshFormat = {
-    {"VertexPosition", "float", 2},
-    {"VertexTexCoord", "float", 2},
-    {"VertexColor", "float",  4},
-}
 
 local clamp01 = utils.clamp01
 
@@ -168,17 +164,15 @@ local function dot(ax,ay,az, bx,by,bz) return ax*bx + ay*by + az*bz end
 
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end
-    gerstner_cache = {}
     camera:updateProjectionConstants()
     local camX, camZ = camera.x, camera.z
-    local uvU, uvV = 0.0, 0.0
+    local uvU, uvV = 0, 0
     for i = 0, WN-1 do
-        local w = waves_ffi[i]
-        timeK_ffi[i] = w.speed * time
-        uvU = uvU + (w.uvSpeed * w.dirx)
-        uvV = uvV + (w.uvSpeed * w.dirz)
+        timeK_ffi[i] = waves_ffi[i].speed * time
+        uvU = uvU + (waves_ffi[i].uvSpeed * waves_ffi[i].dirx)
+        uvV = uvV + (waves_ffi[i].uvSpeed * waves_ffi[i].dirz)
     end
-    uvU, uvV = (uvU * time) % 1.0, (uvV * time) % 1.0
+    uvU, uvV = (uvU * time) % 1, (uvV * time) % 1
     local sunAngle = (night.time / (night.dayLength)) * (2 * pi)
     local sunDirX = cos(sunAngle)
     local sunDirY = sin(sunAngle) * 0.65 + 0.35
@@ -254,8 +248,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
                 entry.dist = dist2
                 entry.texture = tile.texture
                 entry.tile = tile
-                entry.uvOffset.u = uvOffset.u
-                entry.uvOffset.v = uvOffset.v
+                entry.uv = {uvOffset.u, uvOffset.v}
                 entry.isWater = water
                 entry.face = "top"
                 entry.vRepeat = 1
@@ -270,7 +263,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
             local nbRow = tileGrid[tx + off.nx]
             local nb = nbRow and nbRow[tz + off.nz]
             local nbHeight = nb and nb.height or 0
-            if not nb or (topY - nbHeight > 2) then
+            if not nb or (topY - nbHeight > 1.25) then
                 local v1s, v2s = tile[off.i1], tile[off.i2]
                 local v1x_s, v1y_s, v1z_s = v1s[1], v1s[2], v1s[3]
                 local v2x_s, v2y_s, v2z_s = v2s[1], v2s[2], v2s[3]
@@ -312,8 +305,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
                         entry.dist = dist
                         entry.texture = tile.texture
                         entry.tile = tile
-                        entry.uvOffset.u = 0
-                        entry.uvOffset.v = 0
+                        entry.uv = {0, 0}
                         entry.isWater = water
                         entry.face = "side"
                         entry.vRepeat = floor(max(1, topY - nbHeight))

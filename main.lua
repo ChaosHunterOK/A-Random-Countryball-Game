@@ -798,8 +798,8 @@ function love.update(dt)
             local sy, sp = 1.5 * dt, 1.2 * dt
             if love.keyboard.isDown("a") then camera.yaw = camera.yaw + sy end
             if love.keyboard.isDown("d") then camera.yaw = camera.yaw - sy end
-            if love.keyboard.isDown("w") then camera.pitch = camera.pitch + sp end
-            if love.keyboard.isDown("s") then camera.pitch = camera.pitch - sp end
+            if love.keyboard.isDown("w") then camera.pitch = camera.pitch - sp end
+            if love.keyboard.isDown("s") then camera.pitch = camera.pitch + sp end
             camera.pitch = clamp(camera.pitch, -1.2, 1.2)
             countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
             local zoom = camera.zoom
@@ -837,7 +837,6 @@ function love.update(dt)
     end
 end
 
-local rayStep = 0.25
 function getTileUnderCursor(mx, my, maxDistance)
     maxDistance = maxDistance or 100
     local nx = (mx / base_width - 0.5) * 2
@@ -862,28 +861,21 @@ function getTileUnderCursor(mx, my, maxDistance)
     rayDir.x, rayDir.y, rayDir.z = rayDir.x/len, rayDir.y/len, rayDir.z/len
     
     local px, py, pz = camera.x, camera.y, camera.z
-    local closestDist = huge
-    local hitTile, hitX, hitY, hitZ
 
-    for t = 0, maxDistance, rayStep do
+    for t = 0, maxDistance, 0.5 do
         local wx, wy, wz = px + rayDir.x*t, py + rayDir.y*t, pz + rayDir.z*t
         for _, block in ipairs(Blocks.placed) do
             if math.abs(wx - block.x) <= 0.5 and math.abs(wy - block.y) <= 0.5 and math.abs(wz - block.z) <= 0.5 then
-                local dist = t
-                if dist < closestDist then
-                    closestDist = dist
-                    hitTile, hitX, hitY, hitZ = block, block.x, block.y, block.z
-                    return hitTile, hitX, hitY, hitZ 
-                end
+                return block, block.x, block.y, block.z, "block"
             end
         end
         local tile = getTileAt(wx, wz)
         if tile and not tile.isAir then
             local avgY = (tile[1][2]+tile[2][2]+tile[3][2]+tile[4][2])*0.25
-            if wy <= avgY + 0.5 then
+            if wy <= avgY + 0.2 and wy >= avgY - 1.0 then
                 local cx = (tile[1][1]+tile[2][1]+tile[3][1]+tile[4][1])*0.25
                 local cz = (tile[1][3]+tile[2][3]+tile[3][3]+tile[4][3])*0.25
-                return tile, cx, avgY, cz
+                return tile, cx, avgY, cz, "terrain"
             end
         end
     end
