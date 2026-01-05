@@ -164,8 +164,6 @@ local C_VOLCANO_NOISE_SCALE = 0.04
 local C_RIVER_FACTOR = 0.25
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
-local C_CAVE_NOISE_SCALE = 0.15
-local C_CAVE_THRESHOLD = 0.65
 
 local function createBaseplate(width, depth, formatType)
     formatType = formatType or "normal"
@@ -408,45 +406,6 @@ local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOf
     lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
     lg.draw(img, sx, sy, rotation or 0, flip and -scale or scale, scale, w / 2, h)
     lg.pop()
-end
-
-function getMouseWorldPos(mx, my, maxDistance)
-    maxDistance = maxDistance or 100
-    local width, height = base_width, base_height
-    local nx = (mx / width - 0.5) * 2
-    local ny = (my / height - 0.5) * -2
-    local yaw, pitch = camera.yaw, camera.pitch
-    local cy, sy = cos(yaw), sin(yaw)
-    local cp, sp = cos(pitch), sin(pitch)
-
-    local forward = { x = sy * cp, y = sp, z = cy * cp }
-    local right = { x = cy, y = 0, z = -sy }
-    local up = { x = -sy * sp, y = cp, z = -cy * sp }
-
-    local rayDir = {
-        x = forward.x + right.x * nx + up.x * ny,
-        y = forward.y + right.y * nx + up.y * ny,
-        z = forward.z + right.z * nx + up.z * ny
-    }
-
-    local len = sqrt(rayDir.x^2 + rayDir.y^2 + rayDir.z^2)
-    rayDir.x, rayDir.y, rayDir.z = rayDir.x / len, rayDir.y / len, rayDir.z / len
-
-    local step = 0.25
-    local px, py, pz = camera.x, camera.y, camera.z
-    for t = 0, maxDistance, step do
-        local wx = px + rayDir.x * t
-        local wy = py + rayDir.y * t
-        local wz = pz + rayDir.z * t
-
-        local tile = getTileAt(wx, wz)
-        local groundY = tile and tile.y or 0
-        if wy <= groundY + 0.5 then
-            return wx, groundY, wz
-        end
-    end
-
-    return px + rayDir.x * maxDistance,py + rayDir.y * maxDistance,pz + rayDir.z * maxDistance
 end
 
 local function isCursorOverInteractive(mx, my)
@@ -862,7 +821,7 @@ function getTileUnderCursor(mx, my, maxDistance)
     
     local px, py, pz = camera.x, camera.y, camera.z
 
-    for t = 0, maxDistance, 0.5 do
+    for t = 0, maxDistance, 0.1 do
         local wx, wy, wz = px + rayDir.x*t, py + rayDir.y*t, pz + rayDir.z*t
         for _, block in ipairs(Blocks.placed) do
             if math.abs(wx - block.x) <= 0.5 and math.abs(wy - block.y) <= 0.5 and math.abs(wz - block.z) <= 0.5 then

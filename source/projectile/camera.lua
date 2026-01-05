@@ -74,6 +74,27 @@ function camera:project3D(x, y, z)
     return screenX, screenY, z2
 end
 
+function camera:getRay(mx, my, w, h)
+    local nx = (mx / w - 0.5) * 2
+    local ny = (0.5 - my / h) * 2
+
+    local aspect = w / h
+    local tanFOV = math.tan(rad(self.fov / self.zoom) * 0.5)
+    
+    local cy, sy = cos(self.yaw), sin(self.yaw)
+    local cp, sp = cos(self.pitch), sin(self.pitch)
+    local forwardX, forwardY, forwardZ = sy * cp, -sp, cy * cp
+    local rightX, rightY, rightZ = cy, 0, -sy
+    local upX, upY, upZ = sy * sp, cp, cy * sp
+
+    local rx = forwardX + (rightX * nx * aspect * tanFOV) + (upX * ny * tanFOV)
+    local ry = forwardY + (rightY * nx * aspect * tanFOV) + (upY * ny * tanFOV)
+    local rz = forwardZ + (rightZ * nx * aspect * tanFOV) + (upZ * ny * tanFOV)
+
+    local mag = math.sqrt(rx*rx + ry*ry + rz*rz)
+    return rx/mag, ry/mag, rz/mag
+end
+
 function camera:getMVPMatrix()
     local cy, sy = cos(self.yaw), sin(self.yaw)
     local cp, sp = cos(self.pitch), sin(self.pitch)

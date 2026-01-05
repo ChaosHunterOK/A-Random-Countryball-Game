@@ -7,12 +7,6 @@ local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
 
 ffi.cdef[[
-typedef struct {
-    float x, y;
-    float u, v;
-    float r, g, b, a;
-} Vertex;
-
 typedef struct { double dirx, dirz, amplitude, k, speed, steepness, uvSpeed; } Wave;
 ]]
 
@@ -69,7 +63,11 @@ local MAX_QUADS = 4000
 local VERTS_PER_QUAD = 4
 local outPool = {}
 for i = 1, MAX_QUADS * 2 do
-    outPool[i] = {verts = ffi.new("double[8]"), brightness = {0,0,0}, uv = {0,0}}
+    outPool[i] = {
+        verts = {0,0,0,0,0,0,0,0},
+        brightness = {0,0,0},
+        uvOffset = {u=0, v=0}
+    }
 end
 
 local function gerstner_f(x, z)
@@ -144,7 +142,6 @@ local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
     if not sx3 then return false end
     local sx4, sy4 = camera:project3D(v4[1], v4[2], v4[3])
     if not sx4 then return false end
-
     if (sx1 < 0 and sx2 < 0 and sx3 < 0 and sx4 < 0) or
        (sx1 > w and sx2 > w and sx3 > w and sx4 > w) or
        (sy1 < 0 and sy2 < 0 and sy3 < 0 and sy4 < 0) or
@@ -152,10 +149,8 @@ local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
         return false
     end
 
-    buf[0], buf[1] = sx1, sy1
-    buf[2], buf[3] = sx2, sy2
-    buf[4], buf[5] = sx3, sy3
-    buf[6], buf[7] = sx4, sy4
+    buf[0], buf[1], buf[2], buf[3] = sx1, sy1, sx2, sy2
+    buf[4], buf[5], buf[6], buf[7] = sx3, sy3, sx4, sy4
     return true
 end
 
@@ -168,9 +163,10 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     local camX, camZ = camera.x, camera.z
     local uvU, uvV = 0, 0
     for i = 0, WN-1 do
-        timeK_ffi[i] = waves_ffi[i].speed * time
-        uvU = uvU + (waves_ffi[i].uvSpeed * waves_ffi[i].dirx)
-        uvV = uvV + (waves_ffi[i].uvSpeed * waves_ffi[i].dirz)
+        local w = waves_ffi[i]
+        timeK_ffi[i] = w.speed * time
+        uvU = uvU + (w.uvSpeed * w.dirx)
+        uvV = uvV + (w.uvSpeed * w.dirz)
     end
     uvU, uvV = (uvU * time) % 1, (uvV * time) % 1
     local sunAngle = (night.time / (night.dayLength)) * (2 * pi)
@@ -248,7 +244,8 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
                 entry.dist = dist2
                 entry.texture = tile.texture
                 entry.tile = tile
-                entry.uv = {uvOffset.u, uvOffset.v}
+                entry.uvOffset.u = uvOffset.u
+                entry.uvOffset.v = uvOffset.v
                 entry.isWater = water
                 entry.face = "top"
                 entry.vRepeat = 1
@@ -305,7 +302,8 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
                         entry.dist = dist
                         entry.texture = tile.texture
                         entry.tile = tile
-                        entry.uv = {0, 0}
+                        entry.uvOffset.u = 0
+                        entry.uvOffset.v = 0
                         entry.isWater = water
                         entry.face = "side"
                         entry.vRepeat = floor(max(1, topY - nbHeight))
@@ -319,7 +317,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         end
         ::continue::
     end
-    for i = 1, #result_table do result_table[i] = nil end
+    for i = #result_table, 1, -1 do result_table[i] = nil end
     for i = 1, outCount do result_table[i] = outPool[i] end
     table.sort(result_table, function(a,b) return a.dist > b.dist end)
     
