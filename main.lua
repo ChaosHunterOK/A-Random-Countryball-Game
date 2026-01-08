@@ -16,6 +16,8 @@ local hud = src.."hud."
 local proj = src.."projectile."
 local menu = src.."menus."
 
+local imgF = "image/"
+
 local camera = require(proj.."camera")
 local countryball = require(src.."countryball")
 local mobs = require(src.."mobs")
@@ -43,7 +45,7 @@ local visible_idk = {cursor = true, skyBox = false}
 local clamp, perlin, getChunkKey = utils.clamp, utils.fastPerlin, utils.getChunkKey
 
 local particlesImgs = {
-    smoke = lg.newImage("image/smoke.png")
+    smoke = lg.newImage(imgF.."smoke.png")
 }
 
 local songs = {
@@ -79,33 +81,33 @@ local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
 local prevGamestate = nil
 
-local titleImage = lg.newImage("image/menu/title.png")
+local titleImage = lg.newImage(imgF.."menu/title.png")
 
 local materials = loadMaterials({
-    grassNormal = "image/grass_type/normal.png",
-    grassHot = "image/grass_type/hot.png",
-    grassCold= "image/grass_type/cold.png",
-    sandNormal = "image/sand_type/normal.png",
-    sandGarnet= "image/sand_type/garnet.png",
-    sandGypsum = "image/sand_type/gypsum.png",
-    sandOlivine = "image/sand_type/olivine.png",
-    snow = "image/snow.png",
-    waterSmall = "image/water_type/type1.png",
-    waterMedium = "image/water_type/type2.png",
-    waterDeep = "image/water_type/type3.png",
-    stone = "image/stone_type/stone.png",
-    granite = "image/stone_type/granite.png",
-    gabbro = "image/stone_type/gabbro.png",
-    porphyry = "image/stone_type/porphyry.png",
-    basalt = "image/stone_type/granite.png",
-    stone_dark = "image/stone_type/stone_dark.png",
-    pumice = "image/stone_type/pumice.png",
-    rhyolite = "image/stone_type/rhyolite.png",
-    oak = "image/oak.png",
-    dirt = "image/dirt.png",
-    lava = "image/lava.png",
-    dirt_clay = "image/dirt_clay.png",
-    farmland = "image/farmland.png",
+    grassNormal = imgF.."grass_type/normal.png",
+    grassHot = imgF.."grass_type/hot.png",
+    grassCold= imgF.."grass_type/cold.png",
+    sandNormal = imgF.."sand_type/normal.png",
+    sandGarnet= imgF.."sand_type/garnet.png",
+    sandGypsum = imgF.."sand_type/gypsum.png",
+    sandOlivine = imgF.."sand_type/olivine.png",
+    snow = imgF.."snow.png",
+    waterSmall = imgF.."water_type/type1.png",
+    waterMedium = imgF.."water_type/type2.png",
+    waterDeep = imgF.."water_type/type3.png",
+    stone = imgF.."stone_type/stone.png",
+    granite = imgF.."stone_type/granite.png",
+    gabbro = imgF.."stone_type/gabbro.png",
+    porphyry = imgF.."stone_type/porphyry.png",
+    basalt = imgF.."stone_type/granite.png",
+    stone_dark = imgF.."stone_type/stone_dark.png",
+    pumice = imgF.."stone_type/pumice.png",
+    rhyolite = imgF.."stone_type/rhyolite.png",
+    oak = imgF.."oak.png",
+    dirt = imgF.."dirt.png",
+    lava = imgF.."lava.png",
+    dirt_clay = imgF.."dirt_clay.png",
+    farmland = imgF.."farmland.png",
 })
 
 local Blocks = require(proj.."blocks")
@@ -803,37 +805,39 @@ function getTileUnderCursor(mx, my, maxDistance)
     
     local aspect = base_width / base_height
     local tanFOV = math.tan(math.rad(camera.fov / 2))
+    local sx = nx * aspect * tanFOV
+    local sy_scalar = ny * tanFOV
+
     local yaw, pitch = camera.yaw, camera.pitch
     local cy, sy = math.cos(yaw), math.sin(yaw)
     local cp, sp = math.cos(pitch), math.sin(pitch)
+    local rdx = (sy * cp) + (cy * sx) + (-sy * sp * sy_scalar)
+    local rdy = sp + (cp * sy_scalar)
+    local rdz = (cy * cp) + (-sy * sx) + (-cy * sp * sy_scalar)
 
-    local forward = {x=sy*cp, y=sp, z=cy*cp}
-    local right = {x=cy, y=0, z=-sy}
-    local up = {x=-sy*sp, y=cp, z=-cy*sp}
-    local rayDir = {
-        x = forward.x + (right.x * nx * aspect * tanFOV) + (up.x * ny * tanFOV),
-        y = forward.y + (right.y * nx * aspect * tanFOV) + (up.y * ny * tanFOV),
-        z = forward.z + (right.z * nx * aspect * tanFOV) + (up.z * ny * tanFOV)
-    }
-
-    local len = math.sqrt(rayDir.x^2 + rayDir.y^2 + rayDir.z^2)
-    rayDir.x, rayDir.y, rayDir.z = rayDir.x/len, rayDir.y/len, rayDir.z/len
+    local len = math.sqrt(rdx*rdx + rdy*rdy + rdz*rdz)
+    local rdx, rdy, rdz = rdx/len, rdy/len, rdz/len
     
     local px, py, pz = camera.x, camera.y, camera.z
+    local blocks = Blocks.placed
 
     for t = 0, maxDistance, 0.1 do
-        local wx, wy, wz = px + rayDir.x*t, py + rayDir.y*t, pz + rayDir.z*t
-        for _, block in ipairs(Blocks.placed) do
+        local wx, wy, wz = px + rdx*t, py + rdy*t, pz + rdz*t
+        for i = 1, #blocks do
+            local block = blocks[i]
             if math.abs(wx - block.x) <= 0.5 and math.abs(wy - block.y) <= 0.5 and math.abs(wz - block.z) <= 0.5 then
                 return block, block.x, block.y, block.z, "block"
             end
         end
+
         local tile = getTileAt(wx, wz)
         if tile and not tile.isAir then
-            local avgY = (tile[1][2]+tile[2][2]+tile[3][2]+tile[4][2])*0.25
+            local t1, t2, t3, t4 = tile[1], tile[2], tile[3], tile[4]
+            local avgY = (t1[2] + t2[2] + t3[2] + t4[2]) * 0.25
+            
             if wy <= avgY + 0.2 and wy >= avgY - 1.0 then
-                local cx = (tile[1][1]+tile[2][1]+tile[3][1]+tile[4][1])*0.25
-                local cz = (tile[1][3]+tile[2][3]+tile[3][3]+tile[4][3])*0.25
+                local cx = (t1[1] + t2[1] + t3[1] + t4[1]) * 0.25
+                local cz = (t1[3] + t2[3] + t3[3] + t4[3]) * 0.25
                 return tile, cx, avgY, cz, "terrain"
             end
         end
@@ -892,7 +896,7 @@ function drawTiles()
         elseif entry.type == "player" then
             countryball.draw(drawWithStencil, Inventory, ItemsModule)
         elseif entry.type == "mob" then
-            mobs.draw(drawWithStencil) 
+            mobs.draw(drawWithStencil)
         end
     end
     ModAPI.runHooks("draw")
@@ -917,7 +921,9 @@ function mainGame()
     hungerBar:draw()
     Crafting:draw(Inventory, itemTypes, items)
     Knapping:draw(Inventory, itemTypes)
-    Inventory:draw(itemTypes)
+    if not Knapping.open then
+        Inventory:draw(itemTypes)
+    end
 
     if pauseProgress > 0 then
         local alpha = pauseProgress * 0.9
@@ -1154,7 +1160,7 @@ function love.run()
     if love.load then love.load(love.arg.parseGameArguments(arg), arg) end
 
     local dt = 0
-    local frameCap = 1/80
+    local frameCap = 1/64
 
     return function()
         love.event.pump()

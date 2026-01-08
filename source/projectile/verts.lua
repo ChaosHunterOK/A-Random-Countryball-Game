@@ -6,9 +6,7 @@ local m = math
 local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
 
-ffi.cdef[[
-typedef struct { double dirx, dirz, amplitude, k, speed, steepness, uvSpeed; } Wave;
-]]
+ffi.cdef[[typedef struct {double dirx, dirz, amplitude, k, speed, steepness, uvSpeed;} Wave;]]
 
 local Verts = {}
 local time = 0
@@ -46,10 +44,7 @@ local V1T = {0, 0, 0}
 local V2T = {0, 0, 0}
 local V3T = {0, 0, 0}
 local V4T = {0, 0, 0}
-local S1 = {0, 0, 0}
-local S2 = {0, 0, 0}
-local S3 = {0, 0, 0}
-local S4 = {0, 0, 0}
+local S1, S2, S3, S4 = {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}
 
 function Verts.setTime(t) time = t or 0 end
 
@@ -119,8 +114,8 @@ end
 local neighborOffsets = {
     {nx=0, nz=-1, i1=1, i2=2},
     {nx=1, nz=0, i1=2, i2=3},
-    {nx=0, nz=1, i1=4, i2=3},
-    {nx=-1,nz=0, i1=1, i2=4},
+    {nx=0, nz=1, i1=3, i2=4},
+    {nx=-1,nz=0, i1=4, i2=1},
 }
 
 local function isTileInRangeFast(tile, camX, camZ, renderDistanceSq)

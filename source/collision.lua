@@ -107,6 +107,34 @@ local function findTileForPosition(x, z, tileGrid)
     return best
 end
 
+function collision.resolveWalls(entity, tileGrid)
+    if not entity or not tileGrid then return end
+    
+    local gx, gz = floor(entity.x), floor(entity.z)
+    local stepHeight = 0.5
+    local neighbors = {
+        {nx = 1, nz = 0}, {nx = -1, nz = 0},
+        {nx = 0, nz = 1}, {nx = 0, nz = -1}
+    }
+    
+    for _, dir in ipairs(neighbors) do
+        local tx, tz = gx + dir.nx, gz + dir.nz
+        local col = tileGrid[tx]
+        local neighborTile = col and col[tz]
+        
+        if neighborTile then
+            local nHeight = neighborTile.height
+            if nHeight > (entity.y + stepHeight) then
+                local wall = {
+                    x = tx, y = 0, z = tz,
+                    w = 1, h = nHeight, d = 1
+                }
+                collision.resolveBlocks(entity, {wall})
+            end
+        end
+    end
+end
+
 function collision.resolveVerts(entity, tileGrid)
     if not entity or not tileGrid then return end
     local tile = findTileForPosition(entity.x or 0, entity.z or 0, tileGrid)
@@ -163,16 +191,21 @@ function collision.resolveBlocks(entity, blocks)
         local bMaxY = b.y + (b.h or 1)
         local bMinZ = b.z
         local bMaxZ = b.z + (b.d or 1)
-
         if not (eMaxX <= bMinX or eMinX >= bMaxX or eMaxY <= bMinY or eMinY >= bMaxY or eMaxZ <= bMinZ or eMinZ >= bMaxZ) then
             local ox = overlapAmount(eMinX, eMaxX, bMinX, bMaxX)
             local oy = overlapAmount(eMinY, eMaxY, bMinY, bMaxY)
             local oz = overlapAmount(eMinZ, eMaxZ, bMinZ, bMaxZ)
-
             local smallest = ox
             local axis = "x"
-            if oy < smallest then smallest, axis = oy, "y" end
-            if oz < smallest then smallest, axis = oz, "z" end
+            
+            if entity.onGround then
+                if oz < ox then
+                    smallest, axis = oz, "z"
+                end
+            else
+                if oy < smallest then smallest, axis = oy, "y" end
+                if oz < smallest then smallest, axis = oz, "z" end
+            end
 
             if axis == "y" then
                 if (entity.y + eh*0.5) > (b.y + (b.h or 1)*0.5) then
@@ -216,6 +249,7 @@ function collision.updateEntity(entity, dt, tileGrid, placedBlocks)
     entity.x = (entity.x or 0) + (entity.vx or 0) * dt
     entity.y = (entity.y or 0) + (entity.velocityY or 0) * dt
     entity.z = (entity.z or 0) + (entity.vz or 0) * dt
+    collision.resolveWalls(entity, tileGrid)
     collision.resolveVerts(entity, tileGrid)
     if placedBlocks then
         collision.resolveBlocks(entity, placedBlocks)
