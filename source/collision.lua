@@ -109,27 +109,28 @@ end
 
 function collision.resolveWalls(entity, tileGrid)
     if not entity or not tileGrid then return end
-    
+    local currentTile = findTileForPosition(entity.x, entity.z, tileGrid)
+    local groundHeight = currentTile and getQuadHeight(entity.x, entity.z, currentTile) or entity.y
+
     local gx, gz = floor(entity.x), floor(entity.z)
     local stepHeight = 0.5
-    local neighbors = {
-        {nx = 1, nz = 0}, {nx = -1, nz = 0},
-        {nx = 0, nz = 1}, {nx = 0, nz = -1}
-    }
-    
-    for _, dir in ipairs(neighbors) do
-        local tx, tz = gx + dir.nx, gz + dir.nz
-        local col = tileGrid[tx]
-        local neighborTile = col and col[tz]
-        
-        if neighborTile then
-            local nHeight = neighborTile.height
-            if nHeight > (entity.y + stepHeight) then
-                local wall = {
-                    x = tx, y = 0, z = tz,
-                    w = 1, h = nHeight, d = 1
-                }
-                collision.resolveBlocks(entity, {wall})
+    for ox = -1, 1 do
+        for oz = -1, 1 do
+            if ox ~= 0 or oz ~= 0 then
+                local tx, tz = gx + ox, gz + oz
+                local col = tileGrid[tx]
+                local neighborTile = col and col[tz]
+                
+                if neighborTile and neighborTile.visible ~= false then
+                    local nHeight = neighborTile.height or 0
+                    if nHeight > (groundHeight + stepHeight) and entity.y < nHeight then
+                        local wall = {
+                            x = tx, y = 0, z = tz,
+                            w = 1, h = nHeight, d = 1
+                        }
+                        collision.resolveBlocks(entity, {wall})
+                    end
+                end
             end
         end
     end
@@ -144,24 +145,13 @@ function collision.resolveVerts(entity, tileGrid)
     end
 
     local height = getQuadHeight(entity.x, entity.z, tile)
-    local eps = 1e-5
+    local eps = 1e-3
     if (entity.y or 0) < height + eps then
         entity.y = height
-        entity.velocityY = 0
-        entity.onGround = true
-
-        local vx, vy, vz = entity.vx or 0, entity.velocityY or 0, entity.vz or 0
-        local v1, v2, v3, v4 = tile[1], tile[2], tile[3], tile[4]
-        local nx, ny, nz
-        if pointInTriangle(entity.x, entity.z, v1, v2, v3) then
-            nx, ny, nz = triangleNormal(v1, v2, v3)
-        else
-            nx, ny, nz = triangleNormal(v1, v3, v4)
+        if (entity.velocityY or 0) < 0 then
+            entity.velocityY = 0
         end
-        local dot = vx * nx + vy * ny + vz * nz
-        entity.vx = vx - dot * nx
-        entity.velocityY = vy - dot * ny
-        entity.vz = vz - dot * nz
+        entity.onGround = true
     else
         entity.onGround = false
     end
@@ -176,69 +166,51 @@ function collision.resolveBlocks(entity, blocks)
     local ew = entity.w or 1
     local eh = entity.h or 1
     local ed = entity.d or 1
-    local eMinX = (entity.x or 0) - ew*0.5
-    local eMaxX = (entity.x or 0) + ew*0.5
-    local eMinY = (entity.y or 0)
-    local eMaxY = (entity.y or 0) + eh
-    local eMinZ = (entity.z or 0) - ed*0.5
-    local eMaxZ = (entity.z or 0) + ed*0.5
-
     for _, b in ipairs(blocks) do
         if not b then goto continue end
-        local bMinX = b.x
-        local bMaxX = b.x + (b.w or 1)
-        local bMinY = b.y
-        local bMaxY = b.y + (b.h or 1)
-        local bMinZ = b.z
-        local bMaxZ = b.z + (b.d or 1)
-        if not (eMaxX <= bMinX or eMinX >= bMaxX or eMaxY <= bMinY or eMinY >= bMaxY or eMaxZ <= bMinZ or eMinZ >= bMaxZ) then
+        local eMinX, eMaxX = entity.x - ew*0.5, entity.x + ew*0.5
+        local eMinY, eMaxY = entity.y, entity.y + eh
+        local eMinZ, eMaxZ = entity.z - ed*0.5, entity.z + ed*0.5
+        
+        local bMinX, bMaxX = b.x, b.x + (b.w or 1)
+        local bMinY, bMaxY = b.y, b.y + (b.h or 1)
+        local bMinZ, bMaxZ = b.z, b.z + (b.d or 1)
+        
+        if eMaxX > bMinX and eMinX < bMaxX and
+           eMaxY > bMinY and eMinY < bMaxY and
+           eMaxZ > bMinZ and eMinZ < bMaxZ then
+            
             local ox = overlapAmount(eMinX, eMaxX, bMinX, bMaxX)
             local oy = overlapAmount(eMinY, eMaxY, bMinY, bMaxY)
             local oz = overlapAmount(eMinZ, eMaxZ, bMinZ, bMaxZ)
-            local smallest = ox
             local axis = "x"
+            local smallest = ox
+            if oz < smallest then
+                smallest = oz
+                axis = "z"
+            end
             
-            if entity.onGround then
-                if oz < ox then
-                    smallest, axis = oz, "z"
-                end
-            else
-                if oy < smallest then smallest, axis = oy, "y" end
-                if oz < smallest then smallest, axis = oz, "z" end
+            if oy < smallest and oy < 0.3 then
+                axis = "y"
             end
 
-            if axis == "y" then
-                if (entity.y + eh*0.5) > (b.y + (b.h or 1)*0.5) then
-                    entity.y = b.y + (b.h or 1)
+            if axis == "x" then
+                entity.x = (entity.x > (bMinX + bMaxX) * 0.5) and (bMaxX + ew*0.5) or (bMinX - ew*0.5)
+                entity.vx = 0
+            elseif axis == "z" then
+                entity.z = (entity.z > (bMinZ + bMaxZ) * 0.5) and (bMaxZ + ed*0.5) or (bMinZ - ed*0.5)
+                entity.vz = 0
+            elseif axis == "y" then
+                if entity.y > (bMinY + bMaxY) * 0.5 then
+                    entity.y = bMaxY
                     entity.velocityY = 0
                     entity.onGround = true
                 else
-                    entity.y = b.y - eh
+                    entity.y = bMinY - eh
                     entity.velocityY = 0
                 end
-            elseif axis == "x" then
-                if (entity.x or 0) > (b.x + (b.w or 1) * 0.5) then
-                    entity.x = b.x + (b.w or 1) + ew*0.5
-                else
-                    entity.x = b.x - ew*0.5
-                end
-                entity.vx = 0
-            elseif axis == "z" then
-                if (entity.z or 0) > (b.z + (b.d or 1) * 0.5) then
-                    entity.z = b.z + (b.d or 1) + ed*0.5
-                else
-                    entity.z = b.z - ed*0.5
-                end
-                entity.vz = 0
             end
-            eMinX = (entity.x or 0) - ew*0.5
-            eMaxX = (entity.x or 0) + ew*0.5
-            eMinY = (entity.y or 0)
-            eMaxY = (entity.y or 0) + eh
-            eMinZ = (entity.z or 0) - ed*0.5
-            eMaxZ = (entity.z or 0) + ed*0.5
         end
-
         ::continue::
     end
 end

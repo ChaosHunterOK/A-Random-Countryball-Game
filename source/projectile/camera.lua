@@ -14,6 +14,9 @@ camera.lookZ = 0
 
 camera._forward = {x=0, y=0, z=0}
 camera._right = {x=0, y=0, z=0}
+camera._cached = false
+camera._lastYaw = -1
+camera._lastPitch = -1
 
 local sin, cos, tan, rad = math.sin, math.cos, math.tan, math.rad
 local clamp = require("source.utils").clamp
@@ -38,16 +41,21 @@ function camera:isPointInFront(x, z)
 end
 
 function camera:getForward()
-    local cp = cos(self.pitch)
-    local sp = sin(self.pitch)
-    local cy = cos(self.yaw)
-    local sy = sin(self.yaw)
+    if camera._lastYaw ~= camera.yaw or camera._lastPitch ~= camera.pitch then
+        local cp = cos(camera.pitch)
+        local sp = sin(camera.pitch)
+        local cy = cos(camera.yaw)
+        local sy = sin(camera.yaw)
 
-    local f = self._forward
-    f.x = sy * cp
-    f.y = -sp
-    f.z = cy * cp
-    return f
+        local f = camera._forward
+        f.x = sy * cp
+        f.y = -sp
+        f.z = cy * cp
+        
+        camera._lastYaw = camera.yaw
+        camera._lastPitch = camera.pitch
+    end
+    return camera._forward
 end
 
 function camera:getRight()

@@ -77,6 +77,10 @@ local menuCamX, menuCamZ, menuTargetCamX, menuTargetCamZ = 50, 50, 50, 50
 local bgSmooth = 0.02
 
 local pauseOpen, pauseProgress = false, 0
+local worldList = {}
+local selectedWorldIndex = 1
+local currentWorldName = nil
+
 local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
 local prevGamestate = nil
@@ -167,7 +171,7 @@ local C_RIVER_FACTOR = 0.25
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
 
-local function createBaseplate(width, depth, formatType)
+function createBaseplate(width, depth, formatType)
     formatType = formatType or "normal"
 
     local nx, nz = width + 1, depth + 1
@@ -268,6 +272,17 @@ local function createBaseplate(width, depth, formatType)
             
             local subsurface = {}
 
+            if avgH < 3.6 then
+                subsurface = {"sandNormal", "sandNormal", "stone"}
+            elseif avgH < 9.5 then
+                subsurface = {"dirt", "dirt", "stone", "stone_dark"}
+            else
+                subsurface = {"stone", "stone", "granite"} 
+            end
+            if volcanicInfluence > 0.93 then
+                subsurface = {"basalt", "basalt", "lava"}
+            end
+
             if subsurface[1] == "dirt" and subsurface[2] == "air" then subsurface[1] = "air" end
             local chunkX, chunkZ = getChunkCoord(x), getChunkCoord(z)
 
@@ -314,10 +329,16 @@ local function getTileAt(x, z)
     return col and col[z]
 end
 
-local dirtTimers = {}
-local DIRT_TO_GRASS_TIME = 30
+local function refreshWorldList()
+    worldList = {}
+    local items = love.filesystem.getDirectoryItems(Mapsave.saveFolder)
+    for _, name in ipairs(items) do
+        local info = love.filesystem.getInfo(Mapsave.saveFolder .. "/" .. name .. "/mapsave.json")
+        if info then table.insert(worldList, name) end
+    end
+    if #worldList == 0 then selectedWorldIndex = 0 else selectedWorldIndex = 1 end
+end
 
-Blocks.baseTiles = baseplateTiles
 local function regenerateMap(w, d, seed)
     m.randomseed(seed or os.time())
     createBaseplate(w, d)
@@ -328,6 +349,63 @@ local function resetWorldFromMods()
     updateTileMeshes(true)
 end
 
+local function createNewWorld(name)
+    local nm = name or ("World_" .. tostring(os.time()))
+    regenerateMap(50, 50, os.time())
+    Mapsave.save(baseplateTiles, materials, nm)
+    currentWorldName = nm
+    Blocks.baseTiles = baseplateTiles
+    updateTileMeshes(true)
+    gamestate = "game"
+end
+
+local function loadWorld(name)
+    if not name then return end
+    local loaded, loadedTileGrid = Mapsave.load(materials, nil, name)
+    if loaded then
+        baseplateTiles = loaded
+        tileGrid = loadedTileGrid
+        if not baseplateTiles._tileChunks then
+            local tileChunks = {}
+            local chunkSize = chunkCfg.size or 4
+            for i, tile in ipairs(baseplateTiles) do
+                local cx, cz = tile.chunkX, tile.chunkZ
+                if cx == nil or cz == nil then
+                    cx = math.floor((tile.x or 0) / chunkSize)
+                    cz = math.floor((tile.z or 0) / chunkSize)
+                    tile.chunkX = cx
+                    tile.chunkZ = cz
+                end
+                local ck = tostring(cx) .. ":" .. tostring(cz)
+                tileChunks[ck] = tileChunks[ck] or {}
+                table.insert(tileChunks[ck], i)
+            end
+            baseplateTiles._tileChunks = tileChunks
+        end
+        Blocks.baseTiles = baseplateTiles
+        currentWorldName = name
+        updateTileMeshes(true)
+        gamestate = "game"
+    end
+end
+
+local function deleteWorld(name)
+    if not name then return end
+    local folder = Mapsave.saveFolder .. "/" .. name
+    local saveFile = folder .. "/mapsave.json"
+    if love.filesystem.getInfo(saveFile) then
+        love.filesystem.remove(saveFile)
+    end
+    if love.filesystem.getInfo(folder) then
+        pcall(function() love.filesystem.remove(folder) end)
+    end
+    refreshWorldList()
+end
+
+local dirtTimers = {}
+local DIRT_TO_GRASS_TIME = 30
+
+Blocks.baseTiles = baseplateTiles
 local preloadedTiles = {}
 local lastCamChunkX, lastCamChunkZ = nil, nil
 local visibleTileSet = {}
@@ -399,7 +477,16 @@ local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOf
     lg.stencil(function()
         for _, t in ipairs(preloadedTiles) do
             if t.mesh and t.dist <= (objX-camera.x)^2 + (objZ-camera.z)^2 + 1 then
-                lg.draw(t.mesh)
+                if t.isWater and verts and verts.waterShader then
+                    local ok, _ = pcall(function()
+                        verts.waterShader:send("uvOffset", {t.uvOffset.u or 0, t.uvOffset.v or 0})
+                    end)
+                    lg.setShader(verts.waterShader)
+                    lg.draw(t.mesh)
+                    lg.setShader()
+                else
+                    lg.draw(t.mesh)
+                end
             end
         end
     end, "replace", 1)
@@ -451,19 +538,19 @@ local function isCursorOverInteractive(mx, my)
 end
 
 function revealUnderground(tile)
-    if isCursorOverInteractive() then return end
-    if not tile or not tile.subsurface then return end
-    for i,mat in ipairs(tile.subsurface) do
-        if mat ~= "air" then
-            tile.texture = materials[mat] or materials.stone
-            table.remove(tile.subsurface, i)
-            return true
-        end
+    if not tile or not tile.subsurface or #tile.subsurface == 0 then
+        tile.texture = materials.stone
+        return
+    end
+    local nextMatName = table.remove(tile.subsurface, 1)
+    
+    if nextMatName and materials[nextMatName] then
+        tile.texture = materials[nextMatName]
+        tile.textureName = nextMatName
     end
 end
 
 function breakTileAt(tileX, tileZ)
-    if isCursorOverInteractive() then return end
     local col = tileGrid[tileX]
     if not col then return end
     local tile = col[tileZ]
@@ -472,11 +559,12 @@ function breakTileAt(tileX, tileZ)
     for i=1,4 do
         tile[i][2] = tile[i][2] - 1
     end
-    table.remove(tile.subsurface, 1)
     if tile.height <= 0 then
         tile.isAir = true
         tile.texture = nil
         for i=1,4 do tile[i][2] = 0 end
+    else
+        revealUnderground(tile)
     end
     tile.showSide = true
     updateTileMeshes(true)
@@ -656,35 +744,60 @@ function love.mousepressed(mx, my, button)
                 end
             end
         end
-            local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+            local tile, cx, cy, cz, kind = getTileUnderCursor(mx, my)
             if tile then
                 local selected = Inventory:getSelected()
                 local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
-                local matName
-                for k,v in pairs(materials) do
-                    if v == tile.texture then matName = k break end
-                end
-                if not matName or unbreakableMaterials[matName] then return end
 
-                local maxDur = Blocks.durabilities[matName] or 3
-                local br = Blocks.currentBreaking
-                if br.tile ~= tile then
-                    br.tile = tile
-                    br.progress = 0
-                    br.max = maxDur
-                else
-                    br.progress = br.progress + multiplier
-                    if br.progress >= br.max then
-                        revealUnderground(tile)
-                        local selected = Inventory:getSelected()
-                        local itemCount = selected and selected.count or 1
-                        local itemDur = selected and selected.durability or nil
-                        ItemsModule.dropItem(cx, cy+1, cz, matName, itemCount, itemDur, 0)
-                        breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
-                        br.tile = nil
+                if kind == "block" then
+                    local block = tile
+                    local matName = block.type
+                    if not matName or unbreakableMaterials[matName] then return end
+
+                    local maxDur = Blocks.durabilities[matName] or 3
+                    local br = Blocks.currentBreaking
+                    if br.tile ~= block then
+                        br.tile = block
                         br.progress = 0
-                        updateTileMeshes(true)
-                        damageSelectedItem(1)
+                        br.max = maxDur
+                    else
+                        br.progress = br.progress + multiplier
+                        if br.progress >= br.max then
+                            ItemsModule.dropItem(block.x, block.y + 1, block.z, matName, 1, nil, 0)
+                            for i = #Blocks.placed, 1, -1 do
+                                if Blocks.placed[i] == block then
+                                    table.remove(Blocks.placed, i)
+                                    break
+                                end
+                            end
+                            br.tile = nil
+                            br.progress = 0
+                            damageSelectedItem(1)
+                        end
+                    end
+                else
+                    local matName
+                    for k,v in pairs(materials) do
+                        if v == tile.texture then matName = k break end
+                    end
+                    if not matName or unbreakableMaterials[matName] then return end
+
+                    local maxDur = Blocks.durabilities[matName] or 3
+                    local br = Blocks.currentBreaking
+                    if br.tile ~= tile then
+                        br.tile = tile
+                        br.progress = 0
+                        br.max = maxDur
+                    else
+                        br.progress = br.progress + multiplier
+                        if br.progress >= br.max then
+                            local matName = tile.textureName or nil
+                            ItemsModule.dropItem(cx, cy+1, cz, matName, 1, nil, 0)
+                            breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
+                            br.tile = nil
+                            br.progress = 0
+                            damageSelectedItem(1)
+                        end
                     end
                 end
             end
@@ -964,6 +1077,29 @@ function menuScreen()
     lg.draw(titleImage, titleX, 30)
 end
 
+local function worldSelectScreen()
+    drawTiles()
+    lg.setDepthMode()
+
+    local title = "Select World"
+    utils.drawTextWithBorder(title, 50, 30)
+
+    local y = 80
+    if #worldList == 0 then
+        utils.drawTextWithBorder("No worlds found. Press C to create.", 50, y)
+    else
+        for i, name in ipairs(worldList) do
+            local isSelected = i == selectedWorldIndex
+            local borderColor = {0,0,0}
+            local textColor = isSelected and {1,1,0} or {1,1,1}
+            utils.drawTextWithBorder(name, 60, y, base_width, "left", borderColor, textColor)
+            y = y + 30
+        end
+    end
+    lg.setColor(1,1,1)
+    utils.drawTextWithBorder("Enter: Play | C: Create World | D: Delete World | Esc: Back", 20, base_height - 40)
+end
+
 function love.draw()
     local r, g, b = unpack(nightCycle.getSkyColor())
     lg.clear(r, g, b, 1, true, true)
@@ -971,6 +1107,8 @@ function love.draw()
         mainGame()
     elseif gamestate == "menu" then
         menuScreen()
+    elseif gamestate == "worldselect" then
+        worldSelectScreen()
     elseif gamestate == "options" then
         drawTiles()
         OptMenu:draw()
@@ -1075,7 +1213,8 @@ function love.keypressed(key)
             if selectedIndex > #menuItems then selectedIndex = 1 end
         elseif key == "return" then
             if menuItems[selectedIndex] == "Play" then
-                gamestate = "game"
+                refreshWorldList()
+                gamestate = "worldselect"
             elseif menuItems[selectedIndex] == "Mods" then
                 gamestate = "mods"
             elseif menuItems[selectedIndex] == "Skins" then
@@ -1085,6 +1224,22 @@ function love.keypressed(key)
             elseif menuItems[selectedIndex] == "Quit" then
                 love.event.quit()
             end
+        end
+    elseif gamestate == "worldselect" then
+        if key == "up" then
+            selectedWorldIndex = selectedWorldIndex - 1
+            if selectedWorldIndex < 1 then selectedWorldIndex = #worldList end
+        elseif key == "down" then
+            selectedWorldIndex = selectedWorldIndex + 1
+            if selectedWorldIndex > #worldList then selectedWorldIndex = 1 end
+        elseif key == "c" then
+            createNewWorld()
+        elseif key == "d" then
+            if worldList[selectedWorldIndex] then deleteWorld(worldList[selectedWorldIndex]) end
+        elseif key == "return" then
+            if worldList[selectedWorldIndex] then loadWorld(worldList[selectedWorldIndex]) end
+        elseif key == "escape" then
+            gamestate = "menu"
         end
     elseif gamestate == "game" then
         if key == "escape" and Knapping.open then
@@ -1131,7 +1286,7 @@ function love.keypressed(key)
         if key == "q" then healthBar:damageHealth(1) end
 
         if key == "f5" then
-            Mapsave.save(baseplateTiles, materials)
+            Mapsave.save(baseplateTiles, materials, currentWorldName)
         end
 
         if key == "escape" then

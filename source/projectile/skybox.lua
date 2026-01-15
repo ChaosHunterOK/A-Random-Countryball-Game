@@ -1,5 +1,6 @@
 local love = require "love"
 local lg = love.graphics
+local lib3d = require "source.projectile.lib3d"
 local camera = require("source.projectile.camera")
 
 local Skybox = {}
@@ -7,8 +8,11 @@ Skybox.texture = nil
 
 local domeVerts3D = {}
 local skyMesh = nil
+local verts2DCache = {}
+
 local function makeSkyDome(radius, rings, segments)
     local verts = {}
+    local vertCount = 0
 
     for r = 0, rings - 1 do
         local v1 = r / rings
@@ -29,8 +33,10 @@ local function makeSkyDome(radius, rings, segments)
             local y2 = math.sin(phi2) * radius
             local z2 = math.sin(theta) * math.cos(phi2) * radius
 
-            table.insert(verts, {x1, y1, z1, u, v1})
-            table.insert(verts, {x2, y2, z2, u, v2})
+            vertCount = vertCount + 1
+            verts[vertCount] = {x1, y1, z1, u, v1}
+            vertCount = vertCount + 1
+            verts[vertCount] = {x2, y2, z2, u, v2}
         end
     end
 
@@ -64,22 +70,25 @@ end
 function Skybox.draw()
     if not skyMesh then return end
 
-    local verts2D = {}
+    lib3d.resetTempPool()
+    
     local cx, cy, cz = camera.x, camera.y, camera.z
-
-    for i = 1, #domeVerts3D do
-        local v = domeVerts3D[i]
-
-        local sx, sy, sz = camera:project3D(
-            v[1] + cx,
-            v[2] + cy,
-            v[3] + cz
-        )
-
-        verts2D[i] = {sx, sy, v[4], v[5]}
+    local skyVertCount = #domeVerts3D
+    if #verts2DCache < skyVertCount then
+        for i = #verts2DCache + 1, skyVertCount do
+            verts2DCache[i] = {0, 0, 0, 0}
+        end
     end
 
-    skyMesh:setVertices(verts2D)
+    for i = 1, skyVertCount do
+        local v = domeVerts3D[i]
+        local sx, sy, sz = camera:project3D(v[1] + cx, v[2] + cy, v[3] + cz)
+        
+        local vert = verts2DCache[i]
+        vert[1], vert[2], vert[3], vert[4] = sx, sy, v[4], v[5]
+    end
+
+    skyMesh:setVertices(verts2DCache)
 
     lg.setDepthMode(nil)
     lg.setColor(1, 1, 1)

@@ -1,5 +1,6 @@
 local love = require "love"
 local utils = require("source.utils")
+local lib3d = require "source.projectile.lib3d"
 local lg = love.graphics
 local cos, sin = math.cos, math.sin
 local floor = math.floor
@@ -62,16 +63,15 @@ local function makeCubeFaces(x, y, z, size, texture, baseTiles)
     local h11 = sampleTileHeightAt(tile, x + 0.5, z + 0.5) or baseY
     local h01 = sampleTileHeightAt(tile, x - 0.5, z + 0.5) or baseY
 
-    local top = y + 1.0
     local v1 = {x - 0.5, h00, z - 0.5}
     local v2 = {x + 0.5, h10, z - 0.5}
     local v5 = {x - 0.5, h01, z + 0.5}
     local v6 = {x + 0.5, h11, z + 0.5}
 
-    local v4 = {x - 0.5, top, z - 0.5}
-    local v3 = {x + 0.5, top, z - 0.5}
-    local v8 = {x - 0.5, top, z + 0.5}
-    local v7 = {x + 0.5, top, z + 0.5}
+    local v4 = {x - 0.5, h00 + 1.0, z - 0.5}
+    local v3 = {x + 0.5, h10 + 1.0, z - 0.5}
+    local v8 = {x - 0.5, h01 + 1.0, z + 0.5}
+    local v7 = {x + 0.5, h11 + 1.0, z + 0.5}
 
     return {
         -- front
@@ -121,11 +121,17 @@ end
 
 local night = require"source.projectile.night_cycle"
 
-local function dot(ax,ay,az, bx,by,bz) return ax*bx + ay*by + az*bz end
+local function dot(ax,ay,az, bx,by,bz) 
+    return lib3d.vec3Dot(ax, ay, az, bx, by, bz)
+end
 
 function Blocks.generate(camera, renderDistanceSq)
     Blocks.placed = Blocks.placed or {}
     camera:updateProjectionConstants()
+    if #Blocks.placed > 0 then
+        lib3d.setSpatialHash(Blocks.placed, 1)
+    end
+    
     local camX, camZ = camera.x, camera.z
 
     local entries = {}
@@ -134,7 +140,7 @@ function Blocks.generate(camera, renderDistanceSq)
     local sunDirX = math.cos(sunAngle)
     local sunDirY = math.sin(sunAngle) * 0.65 + 0.35
     local sunDirZ = math.sin(sunAngle + 0.7)
-    sunDirX, sunDirY, sunDirZ = utils.normalize(sunDirX, sunDirY, sunDirZ)
+    sunDirX, sunDirY, sunDirZ = lib3d.vec3Normalize(sunDirX, sunDirY, sunDirZ)
 
     local textureMul = night.getTextureMultiplier() or {1,1,1}
     local r = textureMul[1]
@@ -157,8 +163,8 @@ function Blocks.generate(camera, renderDistanceSq)
             local v1, v2, v3 = face[1], face[2], face[3]
             local ux, uy, uz = v2[1]-v1[1], v2[2]-v1[2], v2[3]-v1[3]
             local vx, vy, vz = v3[1]-v1[1], v3[2]-v1[2], v3[3]-v1[3]
-            nx, ny, nz = uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx
-            nx, ny, nz = utils.normalize(nx, ny, nz)
+            nx, ny, nz = lib3d.vec3Cross(ux, uy, uz, vx, vy, vz)
+            nx, ny, nz = lib3d.vec3Normalize(nx, ny, nz)
 
             for i = 1, 4 do
                 local v = face[i]
@@ -177,7 +183,7 @@ function Blocks.generate(camera, renderDistanceSq)
                     local faceBrightness = ambient + diff * (1.0 - ambient)
                     if faceBrightness > 1 then faceBrightness = 1 end
                     faceBrightness = faceBrightness
-                    local finalColor = {r * faceBrightness, g * faceBrightness, b * faceBrightness}
+                    local finalColor = {r, g, b}
 
                     if count >= MAX_QUADS then
                         break
@@ -244,17 +250,7 @@ end
 
 function Blocks.raycast(camera, mx, my, maxDistance)
     local width, height = love.graphics.getWidth(), love.graphics.getHeight()
-    local nx = (mx / width - 0.5) * 2
-    local ny = (my / height - 0.5) * -2
-
-    local cp = math.cos(camera.pitch)
-    local sp = math.sin(camera.pitch)
-    local cy = math.cos(camera.yaw)
-    local sy = math.sin(camera.yaw)
-
-    local dirX = sy * cp
-    local dirY = -sp
-    local dirZ = cy * cp
+    local dirX, dirY, dirZ = camera:getRay(mx, my, width, height)
 
     local step = 0.05
     local lastEmpty = {x=camera.x, y=camera.y, z=camera.z}
@@ -264,9 +260,10 @@ function Blocks.raycast(camera, mx, my, maxDistance)
         local ry = camera.y + dirY * d
         local rz = camera.z + dirZ * d
         lastEmpty.x, lastEmpty.y, lastEmpty.z = rx, ry, rz
-
-        for i = 1, #Blocks.placed do
-            local block = Blocks.placed[i]
+        local nearby = lib3d.getSpatialNearby(rx, rz, 1, 1)
+        
+        for i = 1, #nearby do
+            local block = nearby[i]
             local bx, by, bz = block.x, block.y, block.z
 
             if math.abs(rx - bx) <= 0.5

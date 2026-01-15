@@ -26,8 +26,14 @@ local function buildMaterialLookup(materials)
     return lookup
 end
 
-function Mapsave.save(baseplateTiles, materials)
+function Mapsave.save(baseplateTiles, materials, worldName)
     if not baseplateTiles or #baseplateTiles == 0 then return end
+
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    if not fs.getInfo(folder) then
+        fs.createDirectory(folder)
+    end
+    local saveFile = folder .. "/mapsave.json"
 
     local texLookup = buildMaterialLookup(materials)
     local out = {}
@@ -69,15 +75,17 @@ function Mapsave.save(baseplateTiles, materials)
     end
 
     local encoded = json.encode(out, { indent = true })
-    fs.write(Mapsave.saveFile, encoded)
+    fs.write(saveFile, encoded)
 end
 
-function Mapsave.load(materials, baseplateTiles)
-    if not fs.getInfo(Mapsave.saveFile) then
+function Mapsave.load(materials, baseplateTiles, worldName)
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    local saveFile = folder .. "/mapsave.json"
+    if not fs.getInfo(saveFile) then
         return nil
     end
 
-    local str = fs.read(Mapsave.saveFile)
+    local str = fs.read(saveFile)
     if not str or #str == 0 then return nil end
 
     local ok, tbl = pcall(function() return json.decode(str) end)

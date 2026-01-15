@@ -18,21 +18,22 @@ end
 local bit = require("bit")
 local bxor, band, lshift = bit.bxor, bit.band, bit.lshift
 
-function utils.hashNoise(ix, iz)
+local function hashNoise(ix, iz)
     local n = ix * 374761393 + iz * 668265263
     n = band(bxor(n, lshift(n,13)), 0xffffffff)
     n = band(n*(n*n*15731 + 789221) + 1376312589, 0xffffffff)
     return (n % 10000) * 0.0001
 end
+utils.hashNoise = hashNoise
 
-function utils.smoothNoise(x, z)
+local function smoothNoise(x, z)
     local ix, iz = floor(x), floor(z)
     local fx, fz = x - ix, z - iz
 
-    local v00 = utils.hashNoise(ix, iz)
-    local v10 = utils.hashNoise(ix+1, iz)
-    local v01 = utils.hashNoise(ix, iz+1)
-    local v11 = utils.hashNoise(ix+1, iz+1)
+    local v00 = hashNoise(ix, iz)
+    local v10 = hashNoise(ix+1, iz)
+    local v01 = hashNoise(ix, iz+1)
+    local v11 = hashNoise(ix+1, iz+1)
 
     local ux = fx * fx * (3 - 2 * fx)
     local uz = fz * fz * (3 - 2 * fz)
@@ -42,8 +43,9 @@ function utils.smoothNoise(x, z)
 
     return i1 + (i2 - i1) * uz
 end
+utils.smoothNoise = smoothNoise
 
-function utils.perlin(x, z, octaves, lacunarity, persistence)
+local function perlin(x, z, octaves, lacunarity, persistence)
     octaves = octaves or 4
     lacunarity = lacunarity or 2
     persistence = persistence or 0.5
@@ -52,7 +54,7 @@ function utils.perlin(x, z, octaves, lacunarity, persistence)
     local total, maxA = 0, 0
 
     for o = 1, octaves do
-        total = total + utils.smoothNoise(x * frequency, z * frequency) * amplitude
+        total = total + smoothNoise(x * frequency, z * frequency) * amplitude
         maxA = maxA + amplitude
         amplitude = amplitude * persistence
         frequency = frequency * lacunarity
@@ -60,20 +62,22 @@ function utils.perlin(x, z, octaves, lacunarity, persistence)
 
     return total / maxA
 end
+utils.perlin = perlin
 
 local noiseCache = {}
 
-function utils.fastPerlin(x, z, octaves, lacunarity, persistence)
+local function fastPerlin(x, z, octaves, lacunarity, persistence)
     if x == nil or z == nil then
         error("fastPerlin: one of the arguments is nil: x="..tostring(x).." z="..tostring(z))
     end
     local k = x .. "_" .. z .. "_" .. (octaves or "") .. "_" .. (lacunarity or "") .. "_" .. (persistence or "")
     local v = noiseCache[k]
     if v ~= nil then return v end
-    v = utils.perlin(x, z, octaves, lacunarity, persistence)
+    v = perlin(x, z, octaves, lacunarity, persistence)
     noiseCache[k] = v
     return v
 end
+utils.fastPerlin = fastPerlin
 
 function utils.clearNoiseCache()
     noiseCache = {}

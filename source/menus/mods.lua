@@ -78,35 +78,11 @@ function ModsMenu.toggle(modName)
 end
 
 function ModsMenu.loadMod(modName)
-    local initPath = MODS_FOLDER .. "/" .. modName .. "/init.lua"
-    if not love.filesystem.getInfo(initPath) then
-        print("[MODS] Missing init.lua in", modName)
-        return
-    end
-
+    local modPath = MODS_FOLDER .. "/" .. modName
     local ModAPI = require("source.mod_api")
-
-    local env = {
-        love = love,
-        print = print,
-        ModAPI = ModAPI,
-        utils = utils,
-        json = json,
-        math = math,
-        pcall = pcall,
-    }
-    setmetatable(env, { __index = _G })
-
-    local chunk, err = love.filesystem.load(initPath)
-    if not chunk then
-        print("[MODS] Load error:", err)
-        return
-    end
-
-    setfenv(chunk, env)
-    local ok, res = pcall(chunk)
+    local ok, err = pcall(function() ModAPI.loadMod(modPath) end)
     if not ok then
-        print("[MODS] Runtime error:", res)
+        print("[MODS] Error loading mod:", err)
     else
         print("[MODS] Loaded:", modName)
     end
