@@ -299,12 +299,45 @@ function Blocks.getPlacementPosition(hitBlock, normal)
 end
 
 function Blocks.place(x, y, z, blockType)
-    Blocks.placed[#Blocks.placed+1] = {
-        x = floor(x) + 0.5,
-        y = floor(y) ,
-        z = floor(z) + 0.5,
+    x, y, z = floor(x), floor(y), floor(z)
+    
+    for i = 1, #Blocks.placed do
+        local b = Blocks.placed[i]
+        if b.x == x and b.y == y and b.z == z then
+            return false
+        end
+    end
+    
+    table.insert(Blocks.placed, {
+        x = x,
+        y = y,
+        z = z,
         type = blockType
-    }
+    })
+    return true
+end
+
+function Blocks.getBlockAt(x, y, z)
+    x, y, z = floor(x + 0.5), floor(y + 0.5), floor(z + 0.5)
+    for i = 1, #Blocks.placed do
+        local b = Blocks.placed[i]
+        if b.x == x and b.y == y and b.z == z then
+            return b, i
+        end
+    end
+    return nil
+end
+
+function Blocks.removeBlock(x, y, z)
+    x, y, z = floor(x + 0.5), floor(y + 0.5), floor(z + 0.5)
+    for i = 1, #Blocks.placed do
+        local b = Blocks.placed[i]
+        if b.x == x and b.y == y and b.z == z then
+            table.remove(Blocks.placed, i)
+            return true
+        end
+    end
+    return false
 end
 
 function Blocks.load(materials)

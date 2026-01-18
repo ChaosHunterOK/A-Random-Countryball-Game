@@ -43,7 +43,9 @@ local itemDefinitions = {
 
     iron_shovel = {"image/items/shovel_type/iron.png", 2, false, durability = 60, toolType = "shovel", material = "iron"},
     iron_hoe = {"image/items/hoe_type/iron.png", 2, false, durability = 50, toolType = "hoe", material = "iron"},
-    iron_pickaxe = {"image/items/pickaxe_type/iron.png", 2, false, durability = 60, toolType = "shovel", material = "iron"},
+    iron_pickaxe = {"image/items/pickaxe_type/iron.png", 2, false, durability = 60, toolType = "pickaxe", material = "iron"},
+
+    ruby_pickaxe = {"image/items/pickaxe_type/iron.png", 2, false, durability = 60, toolType = "pickaxe", material = "ruby"},
 }
 
 local items = {}

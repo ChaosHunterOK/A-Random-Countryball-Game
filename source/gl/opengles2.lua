@@ -77,11 +77,11 @@ local function setup_ffi()
 
     local lib
     if osname == "Windows" then
-        lib = ffi.load("opengl32")
+        lib = pcall(ffi.load, "opengl32") and ffi.load("opengl32") or nil
     elseif osname == "Linux" then
-        lib = ffi.load("GL")
+        lib = pcall(ffi.load, "GL") and ffi.load("GL") or nil
     elseif osname:find("OS X") or osname:find("macOS") then
-        lib = ffi.load("/System/Library/Frameworks/OpenGL.framework/OpenGL")
+        lib = pcall(ffi.load, "/System/Library/Frameworks/OpenGL.framework/OpenGL") and ffi.load("/System/Library/Frameworks/OpenGL.framework/OpenGL") or nil
     end
 
     if lib then

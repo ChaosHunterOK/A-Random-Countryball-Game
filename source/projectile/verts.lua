@@ -148,7 +148,6 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     local invAmbient2 = invAmbient * 1.05
     local tileCount = #tiles
     
-    -- Cache frequently accessed data
     local hwDist = camera.hw
     local camZoom = camera.zoom
     local fovTan = camera._fovTan or math.tan(math.rad(camera.fov / 2))
@@ -332,7 +331,6 @@ function Verts.ensureAllMeshes(visibleTiles, fallback)
         t.mesh = mesh
     end
     
-    -- Clean up unused meshes more efficiently
     local poolSize = #Verts.meshPool
     if poolSize > Verts.meshCount + 64 then
         for i = Verts.meshCount + 1, poolSize do

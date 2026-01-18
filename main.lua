@@ -85,6 +85,9 @@ local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
 local prevGamestate = nil
 
+local autosaveInterval = 30
+local autosaveTimer = 0
+
 local titleImage = lg.newImage(imgF.."menu/title.png")
 
 local materials = loadMaterials({
@@ -112,6 +115,8 @@ local materials = loadMaterials({
     lava = imgF.."lava.png",
     dirt_clay = imgF.."dirt_clay.png",
     farmland = imgF.."farmland.png",
+    dirtWet = imgF.."dirtWet.png",
+    farmlandWet = imgF.."farmlandWet.png",
 })
 
 local Blocks = require(proj.."blocks")
@@ -184,6 +189,8 @@ function createBaseplate(width, depth, formatType)
 
     if formatType == "flat" then
         for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
+    elseif formatType == "debug" then
+        for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
     else
         local islands = {}
         for i = 1, 3 do islands[i] = {
@@ -235,6 +242,13 @@ function createBaseplate(width, depth, formatType)
     local idx = 1
     local tileChunks = {}
     local function chunkKey(cx, cz) return cx..":"..cz end
+    local materialNames = {}
+    if formatType == "debug" then
+        for name, _ in pairs(materials) do
+            table.insert(materialNames, name)
+        end
+        table.sort(materialNames)
+    end
 
     for z = 0, depth - 1 do
         tileGrid[z] = tileGrid[z] or {}
@@ -243,43 +257,55 @@ function createBaseplate(width, depth, formatType)
             local h3, h4 = get_h(x + 1, z + 1), get_h(x, z + 1)
             local avgH = (h1 + h2 + h3 + h4) * 0.25 
 
-            local biomeNoise = perlin(x * C_BIOME_SCALE, z * C_BIOME_SCALE)
-            local tempNoise = perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200)
-            local humidNoise = perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400)
-            local volcanicInfluence = perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
             local texName = "grassNormal"
+            local tileTexture = materials.grassNormal
+            local biomeNoise, tempNoise, humidNoise, volcanicInfluence = 0, 0, 0, 0
 
-            if avgH < 0.6 then texName = "waterDeep"
-            elseif avgH < 1.8 then texName = "waterMedium"
-            elseif avgH < 3.6 then
-                if tempNoise < -0.2 then texName = "sandGypsum"
-                elseif biomeNoise < -0.2 then texName = "sandGarnet"
-                elseif biomeNoise > 0.45 then texName = "sandOlivine"
-                else texName = "sandNormal"end
-            elseif avgH < 6 then
-                if tempNoise < -0.25 then texName = "grassCold"
-                elseif tempNoise > 0.4 then texName = "grassHot"
-                else texName = "grassNormal"end
-            elseif avgH < 9.5 then
-                local rockSel = perlin(x * 0.2, z * 0.2)
-                if rockSel < -0.25 then texName = "stone_dark"
-                elseif rockSel > 0.45 then texName = "rhyolite"
-                else texName = "stone" end
-            elseif avgH < 11 then texName = "granite" else texName = "snow"end
-            if volcanicInfluence > 0.93 and avgH > 6 then if avgH > 10 then texName = (perlin(x * 0.2, z * 0.2) > 0.5) and "lava" or "basalt" else texName = "basalt"end end
+            if formatType == "debug" then
+                local matIdx = ((floor(x / 2) + floor(z / 2) * (width / 2)) % #materialNames) + 1
+                texName = materialNames[matIdx]
+                tileTexture = materials[texName] or materials.grassNormal
+            else
+                biomeNoise = perlin(x * C_BIOME_SCALE, z * C_BIOME_SCALE)
+                tempNoise = perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200)
+                humidNoise = perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400)
+                volcanicInfluence = perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
+                texName = "grassNormal"
 
-            local tileTexture = materials[texName]
+                if avgH < 0.6 then texName = "waterDeep"
+                elseif avgH < 1.8 then texName = "waterMedium"
+                elseif avgH < 3.6 then
+                    if tempNoise < -0.2 then texName = "sandGypsum"
+                    elseif biomeNoise < -0.2 then texName = "sandGarnet"
+                    elseif biomeNoise > 0.45 then texName = "sandOlivine"
+                    else texName = "sandNormal"end
+                elseif avgH < 6 then
+                    if tempNoise < -0.25 then texName = "grassCold"
+                    elseif tempNoise > 0.4 then texName = "grassHot"
+                    else texName = "grassNormal"end
+                elseif avgH < 9.5 then
+                    local rockSel = perlin(x * 0.2, z * 0.2)
+                    if rockSel < -0.25 then texName = "stone_dark"
+                    elseif rockSel > 0.45 then texName = "rhyolite"
+                    else texName = "stone" end
+                elseif avgH < 11 then texName = "granite" else texName = "snow"end
+                if volcanicInfluence > 0.93 and avgH > 6 then if avgH > 10 then texName = (perlin(x * 0.2, z * 0.2) > 0.5) and "lava" or "basalt" else texName = "basalt"end end
+
+                tileTexture = materials[texName]
+            end
             
             local subsurface = {}
 
-            if avgH < 3.6 then
+            if formatType == "debug" then
+                subsurface = {"grassNormal", "grassNormal", "stone"}
+            elseif avgH < 3.6 then
                 subsurface = {"sandNormal", "sandNormal", "stone"}
             elseif avgH < 9.5 then
                 subsurface = {"dirt", "dirt", "stone", "stone_dark"}
             else
                 subsurface = {"stone", "stone", "granite"} 
             end
-            if volcanicInfluence > 0.93 then
+            if not formatType == "debug" and volcanicInfluence > 0.93 then
                 subsurface = {"basalt", "basalt", "lava"}
             end
 
@@ -355,10 +381,26 @@ local function createNewWorld(name)
     Mapsave.save(baseplateTiles, materials, nm)
     currentWorldName = nm
     Blocks.baseTiles = baseplateTiles
+    
+    countryball.x, countryball.y, countryball.z = 10, 10, 10
+    countryball.health = countryball.maxHealth
+    countryball.hunger = countryball.maxHunger
+    countryball.hungerExhaustion = 0
+    Mapsave.saveCountryball(countryball, nm)
+    
+    Inventory.items = {}
+    for i = 1, Inventory.maxSlots do Inventory.items[i] = nil end
+    Inventory.selectedSlot = 1
+    Inventory.heldItem = nil
+    Inventory.heldCount = 0
+    Mapsave.saveInventory(Inventory, nm)
+    
+    Blocks.placed = {}
+    Mapsave.saveBlocks(Blocks.placed, nm)
+    
     updateTileMeshes(true)
     gamestate = "game"
 end
-
 local function loadWorld(name)
     if not name then return end
     local loaded, loadedTileGrid = Mapsave.load(materials, nil, name)
@@ -384,6 +426,52 @@ local function loadWorld(name)
         end
         Blocks.baseTiles = baseplateTiles
         currentWorldName = name
+        
+        local cbState = Mapsave.loadCountryball(name)
+        if cbState then
+            countryball.x = cbState.x or countryball.x
+            countryball.y = cbState.y or countryball.y
+            countryball.z = cbState.z or countryball.z
+            countryball.health = cbState.health or countryball.health
+            countryball.hunger = cbState.hunger or countryball.hunger
+            countryball.hungerExhaustion = cbState.hungerExhaustion or 0
+            countryball.flip = cbState.flip or false
+        end
+        
+        local invData = Mapsave.loadInventory(name)
+        if invData then
+            Inventory.items = {}
+            for i = 1, (invData.maxSlots or Inventory.maxSlots) do
+                if invData.items[i] then
+                    Inventory.items[i] = {
+                        type = invData.items[i].type,
+                        count = invData.items[i].count,
+                        durability = invData.items[i].durability
+                    }
+                end
+            end
+            Inventory.selectedSlot = invData.selectedSlot or 1
+            Inventory.heldItem = invData.heldItem
+            Inventory.heldCount = invData.heldCount or 0
+            Inventory.heldDurability = invData.heldDurability
+        end
+        
+        local blocksData = Mapsave.loadBlocks(name)
+        if blocksData then
+            Blocks.placed = {}
+            for i = 1, #blocksData do
+                local blockData = blocksData[i]
+                if blockData then
+                    table.insert(Blocks.placed, {
+                        x = blockData.x,
+                        y = blockData.y,
+                        z = blockData.z,
+                        type = blockData.type
+                    })
+                end
+            end
+        end
+        
         updateTileMeshes(true)
         gamestate = "game"
     end
@@ -448,8 +536,7 @@ function updateTileMeshes(force)
     verts.ensureAllMeshes(preloadedTiles, materials)
 end
 
-local fadeMargin, baseScale = 5, 3.0
-
+local baseScale = 3.0
 local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOffset)
     if not img then return end
     local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
@@ -462,35 +549,30 @@ local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOf
     local sx, sy, z = camera:project3D(objX, objY + yOffset, objZ)
     if not sx or z <= 0 then return end
 
-    if sx < fadeMargin or sx > base_width - fadeMargin
-    or sy < fadeMargin or sy > base_height - fadeMargin then
-        return
-    end
-
     local scale = (camera.hw / z) * (camera.zoom * 0.0025) * baseScale
     local w, h = img:getWidth(), img:getHeight()
     local textureMul = nightCycle.getTextureMultiplier() or {1,1,1}
+    
+    local halfW = (w * scale) * 0.5
+    local halfH = h * scale
+    local left = sx - halfW
+    local top = sy - halfH
+    local right = sx + halfW
+    local bottom = sy + halfH
 
     lg.push("all")
     lg.setDepthMode("always", false)
+    local clipLeft = max(0, left)
+    local clipTop = max(0, top)
+    local clipRight = min(base_width, right)
+    local clipBottom = min(base_height, bottom)
     
-    lg.stencil(function()
-        for _, t in ipairs(preloadedTiles) do
-            if t.mesh and t.dist <= (objX-camera.x)^2 + (objZ-camera.z)^2 + 1 then
-                if t.isWater and verts and verts.waterShader then
-                    local ok, _ = pcall(function()
-                        verts.waterShader:send("uvOffset", {t.uvOffset.u or 0, t.uvOffset.v or 0})
-                    end)
-                    lg.setShader(verts.waterShader)
-                    lg.draw(t.mesh)
-                    lg.setShader()
-                else
-                    lg.draw(t.mesh)
-                end
-            end
-        end
-    end, "replace", 1)
-    lg.setStencilTest("equal", 0)
+    if clipLeft < clipRight and clipTop < clipBottom then
+        lg.setScissor(clipLeft, clipTop, clipRight - clipLeft, clipBottom - clipTop)
+    else
+        lg.pop()
+        return
+    end
     
     lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
     lg.draw(img, sx, sy, rotation or 0, flip and -scale or scale, scale, w / 2, h)
@@ -907,6 +989,13 @@ function love.update(dt)
             Crafting:update(dt)
             Props.updateProps(dt)
             Particles.updateSmoke(dt)
+            autosaveTimer = autosaveTimer + dt
+            if autosaveTimer >= autosaveInterval and currentWorldName then
+                Mapsave.saveCountryball(countryball, currentWorldName)
+                Mapsave.saveInventory(Inventory, currentWorldName)
+                Mapsave.saveBlocks(Blocks.placed, currentWorldName)
+                autosaveTimer = 0
+            end
         end
     end
 end
@@ -969,16 +1058,24 @@ function drawTiles()
     end
     local blockEntries = Blocks.generate(camera, renderDistanceSq)
     Blocks.ensureAllMeshes(blockEntries)
-    local terrain = {}
-    for i=1, #preloadedTiles do terrain[#terrain+1] = preloadedTiles[i] end
-    for i=1, #blockEntries do terrain[#terrain+1] = blockEntries[i] end
-    
-    table.sort(terrain, function(a, b) return a.dist > b.dist end)
-    for _, e in ipairs(terrain) do
-        lg.setColor(e.color or {1, 1, 1})
-        lg.draw(e.mesh or e.verts)
-    end
     local renderQueue = {}
+    for i=1, #preloadedTiles do
+        local tile = preloadedTiles[i]
+        table.insert(renderQueue, {
+            dist = tile.dist,
+            type = "terrain",
+            obj = tile
+        })
+    end
+    for i=1, #blockEntries do
+        local block = blockEntries[i]
+        table.insert(renderQueue, {
+            dist = block.dist,
+            type = "block",
+            obj = block
+        })
+    end
+    
     for _, p in ipairs(Props.props) do
         table.insert(renderQueue, {
             dist = (p.x - camera.x)^2 + (p.z - camera.z)^2,
@@ -993,14 +1090,31 @@ function drawTiles()
             obj = mob
         })
     end
-
     for _, item in ipairs(itemsOnGround) do
-        table.insert(renderQueue, {dist = (item.x - camera.x)^2 + (item.z - camera.z)^2,type = "item",obj = item})
+        table.insert(renderQueue, {
+            dist = (item.x - camera.x)^2 + (item.z - camera.z)^2,
+            type = "item",
+            obj = item
+        })
     end
-    table.insert(renderQueue, {dist = (countryball.x - camera.x)^2 + (countryball.z - camera.z)^2,type = "player",obj = countryball})
+    table.insert(renderQueue, {
+        dist = (countryball.x - camera.x)^2 + (countryball.z - camera.z)^2,
+        type = "player",
+        obj = countryball
+    })
+    
     table.sort(renderQueue, function(a, b) return a.dist > b.dist end)
+    
     for _, entry in ipairs(renderQueue) do
-        if entry.type == "prop" then
+        if entry.type == "terrain" then
+            local e = entry.obj
+            lg.setColor(1, 1, 1, 1)
+            lg.draw(e.mesh or e.verts)
+        elseif entry.type == "block" then
+            local e = entry.obj
+            lg.setColor(e.color or {1, 1, 1})
+            lg.draw(e.mesh or e.verts)
+        elseif entry.type == "prop" then
             local singlePropTable = { entry.obj } 
             Props.drawProps(singlePropTable, drawWithStencil)
         elseif entry.type == "item" then

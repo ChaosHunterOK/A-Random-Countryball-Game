@@ -207,7 +207,7 @@ local function plantAppleSeed(tile, x, z)
     if not tile or not tile.textureName then return false end
 
     if not tableContains(
-        {"grassNormal", "grassHot", "grassCold", "farmland"},
+        {"grassNormal", "grassHot", "grassCold", "dirt", "farmland"},
         tile.textureName
     ) then
         return false

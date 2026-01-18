@@ -10,6 +10,9 @@ local Mapsave = {}
 
 Mapsave.saveFolder = "mapsave"
 Mapsave.saveFile = Mapsave.saveFolder .. "/mapsave.json"
+Mapsave.countryballFile = Mapsave.saveFolder .. "/countryball.json"
+Mapsave.inventoryFile = Mapsave.saveFolder .. "/inventory.json"
+Mapsave.blocksFile = Mapsave.saveFolder .. "/blocks.json"
 
 if not fs.getInfo(Mapsave.saveFolder) then
     fs.createDirectory(Mapsave.saveFolder)
@@ -155,6 +158,150 @@ function Mapsave.load(materials, baseplateTiles, worldName)
     end
 
     return loadedTiles, tileGrid
+end
+
+function Mapsave.saveCountryball(countryballState, worldName)
+    if not countryballState then return end
+    
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    if not fs.getInfo(folder) then
+        fs.createDirectory(folder)
+    end
+    local saveFile = folder .. "/countryball.json"
+
+    local data = {
+        x = countryballState.x,
+        y = countryballState.y,
+        z = countryballState.z,
+        health = countryballState.health,
+        maxHealth = countryballState.maxHealth,
+        hunger = countryballState.hunger,
+        maxHunger = countryballState.maxHunger,
+        hungerExhaustion = countryballState.hungerExhaustion,
+        velocityY = countryballState.velocityY,
+        onGround = countryballState.onGround,
+        flip = countryballState.flip,
+    }
+
+    local encoded = json.encode(data, { indent = true })
+    fs.write(saveFile, encoded)
+end
+
+function Mapsave.loadCountryball(worldName)
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    local saveFile = folder .. "/countryball.json"
+    
+    if not fs.getInfo(saveFile) then
+        return nil
+    end
+
+    local str = fs.read(saveFile)
+    if not str or #str == 0 then return nil end
+
+    local ok, data = pcall(function() return json.decode(str) end)
+    if not ok or type(data) ~= "table" then
+        return nil
+    end
+
+    return data
+end
+
+function Mapsave.saveInventory(inventoryState, worldName)
+    if not inventoryState then return end
+    
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    if not fs.getInfo(folder) then
+        fs.createDirectory(folder)
+    end
+    local saveFile = folder .. "/inventory.json"
+
+    local items = {}
+    for i = 1, #inventoryState.items do
+        local slot = inventoryState.items[i]
+        if slot and slot.count > 0 then
+            items[i] = {
+                type = slot.type,
+                count = slot.count,
+                durability = slot.durability
+            }
+        end
+    end
+
+    local data = {
+        items = items,
+        selectedSlot = inventoryState.selectedSlot,
+        maxSlots = inventoryState.maxSlots,
+        heldItem = inventoryState.heldItem,
+        heldCount = inventoryState.heldCount,
+        heldDurability = inventoryState.heldDurability,
+    }
+
+    local encoded = json.encode(data, { indent = true })
+    fs.write(saveFile, encoded)
+end
+
+function Mapsave.loadInventory(worldName)
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    local saveFile = folder .. "/inventory.json"
+    
+    if not fs.getInfo(saveFile) then
+        return nil
+    end
+
+    local str = fs.read(saveFile)
+    if not str or #str == 0 then return nil end
+
+    local ok, data = pcall(function() return json.decode(str) end)
+    if not ok or type(data) ~= "table" then
+        return nil
+    end
+
+    return data
+end
+
+function Mapsave.saveBlocks(blocksState, worldName)
+    if not blocksState or #blocksState == 0 then return end
+    
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    if not fs.getInfo(folder) then
+        fs.createDirectory(folder)
+    end
+    local saveFile = folder .. "/blocks.json"
+
+    local blocks = {}
+    for i = 1, #blocksState do
+        local block = blocksState[i]
+        if block then
+            blocks[i] = {
+                x = block.x,
+                y = block.y,
+                z = block.z,
+                type = block.type,
+            }
+        end
+    end
+
+    local encoded = json.encode(blocks, { indent = true })
+    fs.write(saveFile, encoded)
+end
+
+function Mapsave.loadBlocks(worldName)
+    local folder = Mapsave.saveFolder .. "/" .. (worldName or "default")
+    local saveFile = folder .. "/blocks.json"
+    
+    if not fs.getInfo(saveFile) then
+        return nil
+    end
+
+    local str = fs.read(saveFile)
+    if not str or #str == 0 then return nil end
+
+    local ok, blocks = pcall(function() return json.decode(str) end)
+    if not ok or type(blocks) ~= "table" then
+        return nil
+    end
+
+    return blocks
 end
 
 return Mapsave
