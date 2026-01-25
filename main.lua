@@ -56,7 +56,7 @@ local audioSources = {}
 
 local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
-local chunkCfg = {size = 4, radius = 4}
+local chunkCfg = {size = 5, radius = 4}
 local base_width, base_height = 1000, 525
 local renderDistance = chunkCfg.size * chunkCfg.radius
 local renderDistanceSq = renderDistance * renderDistance
@@ -70,7 +70,7 @@ function loadMaterials(tbl)
     end
     return res
 end
-
+local bw, bh= 200, 200
 local menuItems = {"Play", "Mods", "Skins", "Options", "Credits", "Quit"}
 local selectedIndex, menuX, menuSpacing = 1, 50, base_height / 8
 local menuCamX, menuCamZ, menuTargetCamX, menuTargetCamZ = 50, 50, 50, 50
@@ -98,6 +98,7 @@ local materials = loadMaterials({
     sandGarnet= imgF.."sand_type/garnet.png",
     sandGypsum = imgF.."sand_type/gypsum.png",
     sandOlivine = imgF.."sand_type/olivine.png",
+    sandPinkCoral = imgF.."sand_type/pink_coral.png",
     snow = imgF.."snow.png",
     waterSmall = imgF.."water_type/type1.png",
     waterMedium = imgF.."water_type/type2.png",
@@ -110,6 +111,10 @@ local materials = loadMaterials({
     stone_dark = imgF.."stone_type/stone_dark.png",
     pumice = imgF.."stone_type/pumice.png",
     rhyolite = imgF.."stone_type/rhyolite.png",
+    shale = imgF.."stone_type/shale.png",
+    limestone = imgF.."stone_type/limestone.png",
+    gravel = imgF.."gravel.png",
+    sandWet = imgF.."sand_type/wet.png",
     oak = imgF.."oak.png",
     dirt = imgF.."dirt.png",
     lava = imgF.."lava.png",
@@ -133,52 +138,70 @@ end
 local function getChunkCoord(v) return floor(v / chunkCfg.size) end
 
 function determineBiome(h, t, h2, volc, x, z)
-    local ctx = {
-        height = h,
-        temperature = t,
-        humidity = h2,
-        volcano = volc,
-        x = x or 0,
-        z = z or 0
-    }
-
-    local chosen, bestPriority = nil, -huge
+    local ctx = {height = h, temperature = t, humidity = h2, volcano = volc, x = x, z = z}
 
     for id, biome in pairs(ModAPI.biomes) do
-        if biome.condition(ctx) then
-            local p = biome.priority or 0
-            if p > bestPriority then
-                chosen = id
-                bestPriority = p
-            end
-        end
+        if biome.condition(ctx) then return id end
+    end
+    
+    if volc > 0.96 and h > 8 then return "Volcanic" end
+    if h > 9.5 then return "SnowPeak" end
+    if h < 0.8 then return "OceanDeep" end
+    if h < 1.8 then return "OceanShallow" end
+    if h < 2.2 and h2 > 0.6 then return "Lake" end
+    
+    if t > 0.5 and h2 < 0.25 then 
+        if h2 < 0.08 then return "GarnetDesert" end 
+        if h2 < 0.15 then return "GypsumDesert" end
+        if t > 0.7 then return "OlivineDesert" end
+        return "Desert"
+    end
+    
+    if h < 2.3 then return "Beach" end
+    
+    if h > 6.0 and h2 < 0.2 then return "Canyon" end
+
+    if h < 7.0 then
+        if t < -0.15 then return "Tundra" end
+        if t > 0.35 then return "Savanna" end
+        if h2 > 0.65 then return "Forest" end
+        if h2 > 0.35 then return "Grassland" end
+        return "Plains"
     end
 
-    if chosen then return chosen end
-    if h < 0.6 then return "OceanDeep" end
-    if h < 1.8 then return "OceanShallow" end
-    if h < 3.6 then return "Desert" end
-    if h < 6 then return "Grassland" end
-    if h < 9.5 then return "Highlands" end
-    return "SnowPeak"
+    return "Highlands"
 end
 
-local biomeGrassMap = {
-    Grassland = "grassNormal", Highlands = "grassNormal",
-    Desert = nil, OceanShallow = nil, OceanDeep = nil,
-    SnowPeak = "grassCold", Tundra = "grassCold",
-    Volcanic = "grassHot", Savanna = "grassHot",
+local biomeToTexture = {
+    OceanDeep = "waterDeep",
+    OceanShallow = "waterMedium",
+    Beach = "sandNormal",
+    Desert = "sandNormal",
+    GypsumDesert = "sandGypsum",
+    GarnetDesert = "sandGarnet",
+    OlivineDesert = "sandOlivine",
+    Lake = "waterSmall",
+    Canyon = "shale",
+    Plains = "grassNormal",
+    Grassland = "grassNormal",
+    Forest = "grassNormal",
+    Savanna = "grassHot",
+    Tundra = "grassCold",
+    Highlands = "stone",
+    SnowPeak = "snow",
+    Volcanic = "pumice"
 }
-local C_SCALE = 0.08
-local C_BIOME_SCALE = 0.05
+local C_SCALE = 0.04
+local C_BIOME_SCALE = 0.03
 local C_VOLCANO_NOISE_SCALE = 0.04
-local C_RIVER_FACTOR = 0.25
+local C_RIVER_FACTOR = 0.15
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
 
-function createBaseplate(width, depth, formatType)
-    formatType = formatType or "normal"
+function createBaseplate(width, depth, seed, formatType)
+    formatType = formatType or "debug"
 
+    setSeed(seed or os.time())
     local nx, nz = width + 1, depth + 1
     local totalPoints = nx * nz
     local heights_buf = ffi.new("double[?]", totalPoints)
@@ -187,16 +210,34 @@ function createBaseplate(width, depth, formatType)
     local function set_h(x, z, v) heights_buf[h_index(x, z)] = v end
     local function get_h(x, z) return heights_buf[h_index(x, z)] end
 
+    local function getFractalNoise(x, z, octaves, persistence, scale)
+        local total = 0
+        local frequency = scale
+        local amplitude = 1
+        local maxValue = 0
+        for i = 1, octaves do
+            total = total + perlin(x * frequency, z * frequency) * amplitude
+            maxValue = maxValue + amplitude
+            amplitude = amplitude * persistence
+            frequency = frequency * 2
+        end
+        return total / maxValue
+    end
+
     if formatType == "flat" then
         for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
     elseif formatType == "debug" then
         for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
     else
         local islands = {}
-        for i = 1, 3 do islands[i] = {
-            cx = random(6, width - 6), cz = random(6, depth - 6),
-            radius = random(3, 8), height = random(2, 7)
-        } end
+        for i = 1, 12 do 
+            islands[i] = {
+                cx = random(5, width - 5), 
+                cz = random(5, depth - 5),
+                radius = random(2, 6),
+                height = random(3, 8)
+            }
+        end
         for z = 0, depth do
             local z_scaled = z * C_SCALE
             local z_volcano = z * C_VOLCANO_H_NOISE
@@ -205,17 +246,25 @@ function createBaseplate(width, depth, formatType)
             local cos_z_river = cos(z_river)
             local C_HEIGHT_MULT = 6
             for x = 0, width do
-                local h = perlin(x * C_SCALE, z_scaled) * C_HEIGHT_MULT
-                local river = sin(x * C_RIVER_FACTOR) * cos_z_river
-                if river > -0.08 and river < 0.08 then h = h - 2.8 end
+                local base = getFractalNoise(x, z, 4, 0.4, C_SCALE) * 10
+                --[[if base < 5 then
+                    base = base * 0.7
+                end]]
+
+                local dx = (x / width) - 0.5
+                local dz = (z / depth) - 0.5
+                local dist = math.sqrt(dx*dx + dz*dz) * 2
+                local mask = math.max(0, 1.2 - dist^1.5)
+
+                local h = (base - 2) * mask
 
                 for i = 1, #islands do
                     local isl = islands[i]
-                    local dx, dz = x - isl.cx, z - isl.cz
-                    local distSq = dx * dx + dz * dz
+                    local idx, idz = x - isl.cx, z - isl.cz
+                    local distSq = idx * idx + idz * idz
                     local rad = isl.radius
                     if distSq < rad * rad then
-                        h = h + isl.height * (1 - sqrt(distSq) / rad)
+                        h = h + isl.height * (1 - sqrt(distSq) / rad)^1.2
                     end
                 end
                 
@@ -224,6 +273,18 @@ function createBaseplate(width, depth, formatType)
                 
                 local caveMask = perlin(x * C_CAVE_MASK_NOISE, z_mask, 0)
                 if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
+
+                local noiseDetail = perlin(x * 0.5, z * 0.5) * 0.5
+                h = h + noiseDetail
+
+                local riverNoise = perlin(x * 0.02, z * 0.02)
+                local riverPath = math.abs(riverNoise)
+                local humidNoise = perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400)
+                if riverPath < 0.04 then
+                    local depthMult = (1 - (riverPath / 0.04))
+                    h = h - (4.0 * depthMult) 
+                    humidNoise = math.min(1, humidNoise + depthMult)
+                end
 
                 local ctx = {x = x,z = z,height = h}
 
@@ -250,91 +311,112 @@ function createBaseplate(width, depth, formatType)
         table.sort(materialNames)
     end
 
+    local function getBiomeNoise(x, z)
+        return
+            perlin(x * C_BIOME_SCALE, z * C_BIOME_SCALE),
+            perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200),
+            perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400),
+            perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
+    end
+
+
     for z = 0, depth - 1 do
-        tileGrid[z] = tileGrid[z] or {}
         for x = 0, width - 1 do
-            local h1, h2 = get_h(x, z), get_h(x + 1, z)
-            local h3, h4 = get_h(x + 1, z + 1), get_h(x, z + 1)
-            local avgH = (h1 + h2 + h3 + h4) * 0.25 
+            tileGrid[x] = tileGrid[x] or {}
+
+            local h1 = get_h(x, z)
+            local h2 = get_h(x + 1, z)
+            local h3 = get_h(x + 1, z + 1)
+            local h4 = get_h(x, z + 1)
+            local avgH = (h1 + h2 + h3 + h4) * 0.25
 
             local texName = "grassNormal"
             local tileTexture = materials.grassNormal
-            local biomeNoise, tempNoise, humidNoise, volcanicInfluence = 0, 0, 0, 0
 
-            if formatType == "debug" then
-                local matIdx = ((floor(x / 2) + floor(z / 2) * (width / 2)) % #materialNames) + 1
-                texName = materialNames[matIdx]
-                tileTexture = materials[texName] or materials.grassNormal
+            local biomeNoise, tempNoise, humidNoise, volcanicInfluence =
+                getBiomeNoise(x, z)
+
+            local biomeID = determineBiome(
+                avgH, tempNoise, humidNoise, volcanicInfluence, x, z
+            )
+
+            texName = biomeToTexture[biomeID] or "grassNormal"
+
+            local detailNoise = perlin(x * 0.4, z * 0.4)
+            if biomeID == "Beach" and detailNoise > 0.4 then
+                texName = "gravel"
+            elseif biomeID == "Highlands" then
+                local rockSel = perlin(x * 0.2, z * 0.2)
+                if rockSel < -0.25 then texName = "stone_dark"
+                elseif rockSel > 0.45 then texName = "rhyolite" end
+            elseif biomeID == "Volcanic" and avgH > 10 and detailNoise > 0.5 then
+                texName = "lava"
+            end
+
+            tileTexture = materials[texName] or materials.grassNormal
+
+            -- Subsurface layers
+            local subsurface
+            local clayChance = perlin(x * 0.1, z * 0.1)
+
+            if avgH < 2.5 then
+                subsurface = {texName, "sandWet", "shale"}
+            elseif avgH < 6 then
+                subsurface = {
+                    (clayChance > 0.7 and humidNoise > 0.2) and "dirt_clay" or "dirt",
+                    "limestone",
+                    "shale"
+                }
+            elseif avgH < 9 then
+                subsurface = {"stone", "limestone", "gabbro"}
             else
-                biomeNoise = perlin(x * C_BIOME_SCALE, z * C_BIOME_SCALE)
-                tempNoise = perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200)
-                humidNoise = perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400)
-                volcanicInfluence = perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
-                texName = "grassNormal"
-
-                if avgH < 0.6 then texName = "waterDeep"
-                elseif avgH < 1.8 then texName = "waterMedium"
-                elseif avgH < 3.6 then
-                    if tempNoise < -0.2 then texName = "sandGypsum"
-                    elseif biomeNoise < -0.2 then texName = "sandGarnet"
-                    elseif biomeNoise > 0.45 then texName = "sandOlivine"
-                    else texName = "sandNormal"end
-                elseif avgH < 6 then
-                    if tempNoise < -0.25 then texName = "grassCold"
-                    elseif tempNoise > 0.4 then texName = "grassHot"
-                    else texName = "grassNormal"end
-                elseif avgH < 9.5 then
-                    local rockSel = perlin(x * 0.2, z * 0.2)
-                    if rockSel < -0.25 then texName = "stone_dark"
-                    elseif rockSel > 0.45 then texName = "rhyolite"
-                    else texName = "stone" end
-                elseif avgH < 11 then texName = "granite" else texName = "snow"end
-                if volcanicInfluence > 0.93 and avgH > 6 then if avgH > 10 then texName = (perlin(x * 0.2, z * 0.2) > 0.5) and "lava" or "basalt" else texName = "basalt"end end
-
-                tileTexture = materials[texName]
-            end
-            
-            local subsurface = {}
-
-            if formatType == "debug" then
-                subsurface = {"grassNormal", "grassNormal", "stone"}
-            elseif avgH < 3.6 then
-                subsurface = {"sandNormal", "sandNormal", "stone"}
-            elseif avgH < 9.5 then
-                subsurface = {"dirt", "dirt", "stone", "stone_dark"}
-            else
-                subsurface = {"stone", "stone", "granite"} 
-            end
-            if not formatType == "debug" and volcanicInfluence > 0.93 then
-                subsurface = {"basalt", "basalt", "lava"}
+                subsurface = {"granite", "basalt", "porphyry"}
             end
 
-            if subsurface[1] == "dirt" and subsurface[2] == "air" then subsurface[1] = "air" end
-            local chunkX, chunkZ = getChunkCoord(x), getChunkCoord(z)
+            if volcanicInfluence > 0.90 then
+                subsurface = {"pumice", "basalt", "lava"}
+            end
+
+            local chunkX = getChunkCoord(x)
+            local chunkZ = getChunkCoord(z)
 
             local tile = {
-                {x, h1, z}, {x + 1, h2, z}, {x + 1, h3, z + 1}, {x, h4, z + 1},
-                x = x, z = z, y = avgH, height = avgH, curHeight = avgH,
-                biome = determineBiome(avgH, tempNoise, humidNoise, volcanicInfluence),
-                texture = tileTexture, textureName = texName, subsurface = subsurface, wallTex = tileTexture,
+                {x, h1, z},
+                {x + 1, h2, z},
+                {x + 1, h3, z + 1},
+                {x, h4, z + 1},
+
+                x = x, z = z,
+                y = avgH,
+                height = avgH,
+                curHeight = avgH,
+
+                biome = biomeID,
+                texture = tileTexture,
+                textureName = texName,
+                subsurface = subsurface,
+                wallTex = tileTexture,
+
                 isVolcano = (volcanicInfluence > 0.92 and avgH > 6),
                 heights = {h1, h2, h3, h4},
-                chunkX = chunkX, chunkZ = chunkZ,
+
+                chunkX = chunkX,
+                chunkZ = chunkZ,
+
                 mesh = nil,
                 floorY = 0,
-                needsMesh = true,
+                needsMesh = true
             }
 
             ModAPI.runHooks("onTileGenerate", tile)
 
             baseplateTiles[idx] = tile
-            tileGrid[x] = tileGrid[x] or {}
             tileGrid[x][z] = tile
 
-            local ck = chunkKey(chunkX, chunkZ)
+            local ck = chunkX .. ":" .. chunkZ
             tileChunks[ck] = tileChunks[ck] or {}
             table.insert(tileChunks[ck], idx)
-            
+
             idx = idx + 1
         end
     end
@@ -371,18 +453,18 @@ local function regenerateMap(w, d, seed)
 end
 
 local function resetWorldFromMods()
-    regenerateMap(100, 100, os.time())
+    regenerateMap(bh, bw, os.time())
     updateTileMeshes(true)
 end
 
 local function createNewWorld(name)
     local nm = name or ("World_" .. tostring(os.time()))
-    regenerateMap(50, 50, os.time())
+    regenerateMap(bh, bw, os.time())
     Mapsave.save(baseplateTiles, materials, nm)
     currentWorldName = nm
     Blocks.baseTiles = baseplateTiles
     
-    countryball.x, countryball.y, countryball.z = 10, 10, 10
+    countryball.x, countryball.y, countryball.z = bh /2, 10, bh /2
     countryball.health = countryball.maxHealth
     countryball.hunger = countryball.maxHunger
     countryball.hungerExhaustion = 0
@@ -495,7 +577,7 @@ local DIRT_TO_GRASS_TIME = 30
 
 Blocks.baseTiles = baseplateTiles
 local preloadedTiles = {}
-local lastCamChunkX, lastCamChunkZ = nil, nil
+local lastCamChunkX, lastCamChunkZ = -999, -999
 local visibleTileSet = {}
 function updateTileMeshes(force)
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
@@ -504,23 +586,24 @@ function updateTileMeshes(force)
     end
     lastCamChunkX, lastCamChunkZ = camChunkX, camChunkZ
 
-    local newVisibleSet = {}
-    local visibleTiles = {}
-
     local r = chunkCfg.radius
+    local newVisibleSet = {}
+    local tilesToRender = {}
     for cz = camChunkZ - r, camChunkZ + r do
         for cx = camChunkX - r, camChunkX + r do
-            local list = baseplateTiles._tileChunks[cx .. ":" .. cz]
-            if list then
-                for i = 1, #list do
-                    local tile = baseplateTiles[list[i]]
-                    visibleTiles[#visibleTiles + 1] = tile
+            local key = cx .. ":" .. cz
+            local tileIndices = baseplateTiles._tileChunks[key]
+            
+            if tileIndices then
+                for i = 1, #tileIndices do
+                    local tile = baseplateTiles[tileIndices[i]]
+                    table.insert(tilesToRender, tile)
                     newVisibleSet[tile] = true
                 end
             end
         end
     end
-    for tile in pairs(visibleTileSet) do
+    for tile, _ in pairs(visibleTileSet) do
         if not newVisibleSet[tile] then
             if tile.mesh then
                 tile.mesh:release()
@@ -531,8 +614,7 @@ function updateTileMeshes(force)
     end
 
     visibleTileSet = newVisibleSet
-
-    preloadedTiles = verts.generate(visibleTiles, camera, renderDistanceSq, tileGrid, materials)
+    preloadedTiles = verts.generate(tilesToRender, camera, renderDistanceSq, tileGrid, materials)
     verts.ensureAllMeshes(preloadedTiles, materials)
 end
 
@@ -679,7 +761,7 @@ end
 
 local function getGrassForBiome(tile)
     if not tile or not tile.biome then return materials.grassNormal end
-    return materials[biomeGrassMap[tile.biome]] or materials.grassNormal
+    return materials[biomeToTexture[tile.biome]] or materials.grassNormal
 end
 
 local function tillTile(tile)
@@ -919,6 +1001,32 @@ local titleX = 2000
 local titleTargetX = base_width - titleImage:getWidth() - 30
 local titleSlideSpeed = 8
 
+local function expEase(current, target, speed, dt)
+    return current + (target - current) * (1 - math.exp(-speed * dt))
+end
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local title = {
+    x = base_width + 400,
+    y = 30,
+    rot = 0,
+    scale = 1.2,
+    float = 0,
+    targetX = base_width - titleImage:getWidth() - 30,
+    intro = 0
+}
+
+local menuAnim = {}
+for i = 1, #menuItems do
+    menuAnim[i] = {
+        offset = 0,
+        pulse = 0
+    }
+end
+
 function love.update(dt)
     love.timer.sleep(0.001)
     Cursor.update(dt)
@@ -929,17 +1037,31 @@ function love.update(dt)
     end
     ModAPI.runHooks("update", dt, baseplateTiles, tileGrid)
     if visible_idk.cursor then love.mouse.setVisible(false) else love.mouse.setVisible(true) end
-    if gamestate == "menu" or gamestate == "options"or gamestate == "skins" or gamestate == "mods" then
+    if gamestate == "menu" or gamestate == "options" or gamestate == "skins" or gamestate == "mods" then
         local mx, my = love.mouse.getPosition()
-        local dx = (mx / base_width - 0.5) * 5
-        local dz = (my / base_height - 0.5) * 5
-
-        menuTargetCamX, menuTargetCamZ = 11 + dx, -0.1 + dz
-        menuCamX = menuCamX + (menuTargetCamX - menuCamX) * bgSmooth
-        menuCamZ = menuCamZ + (menuTargetCamZ - menuCamZ) * bgSmooth
+        local dx = (mx / base_width - 0.5) * 6
+        local dz = (my / base_height - 0.5) * 6
+        menuTargetCamX = 11 + dx + math.sin(love.timer.getTime() * 0.4) * 0.2
+        menuTargetCamZ = -0.1 + dz + math.cos(love.timer.getTime() * 0.4) * 0.2
+        menuCamX = expEase(menuCamX, menuTargetCamX, 4, dt)
+        menuCamZ = expEase(menuCamZ, menuTargetCamZ, 4, dt)
 
         camera.x, camera.z = menuCamX, menuCamZ
-        titleX = titleX + (titleTargetX - titleX) * (1 - math.exp(-titleSlideSpeed * dt))
+        title.intro = math.min(title.intro + dt * 0.9, 1)
+        local overshoot = math.sin(title.intro * math.pi) * 40
+
+        title.x = expEase(title.x,title.targetX - overshoot,6,dt)
+
+        title.scale = expEase(title.scale, 1, 5, dt)
+        title.rot = math.sin(love.timer.getTime() * 0.6) * 0.02
+        title.float = math.sin(love.timer.getTime() * 1.5) * 6
+        for i = 1, #menuItems do
+            local anim = menuAnim[i]
+            local target = (i == selectedIndex) and 16 or 0
+            anim.offset = expEase(anim.offset, target, 10, dt)
+            anim.pulse = anim.pulse + dt * ((i == selectedIndex) and 6 or 2)
+        end
+
         return
     end
     if gamestate == "game" then
@@ -1177,18 +1299,30 @@ function menuScreen()
     lg.setDepthMode()
 
     for i, text in ipairs(menuItems) do
-        local x = menuX
+        local anim = menuAnim[i]
         local y = 131.5 + (i-1) * menuSpacing
-        local isSelected = i == selectedIndex
-        local borderColor = {0,0,0}
-        local textColor = isSelected and {1,1,0} or {1,1,1}
-        utils.drawTextWithBorder(text, x, y, base_width, "left", borderColor, textColor)
-        love.graphics.setColor(1,1,1)
+
+        local x = menuX + anim.offset
+        local scale = (i == selectedIndex) and (1) or 1
+
+        local borderColor = {0, 0, 0}
+        local textColor = (i == selectedIndex)and {1, 1, 0}or {1, 1, 1}
+
+        lg.push()
+        lg.translate(x, y)
+        lg.scale(scale, scale)
+        utils.drawTextWithBorder(text, 0, 0, base_width, "left", borderColor, textColor)
+        lg.pop()
     end
 
     local text = "2025 REVIVAL"
     utils.drawTextWithBorder(text, base_width - font:getWidth(text) - 10, base_height - 30, base_width)
-    lg.draw(titleImage, titleX, 30)
+    lg.push()
+    lg.translate(title.x + titleImage:getWidth()/2,title.y + title.float + titleImage:getHeight()/2)
+    lg.rotate(title.rot)
+    lg.scale(title.scale, title.scale)
+    lg.draw(titleImage, -titleImage:getWidth()/2, -titleImage:getHeight()/2)
+    lg.pop()
 end
 
 local function worldSelectScreen()
@@ -1238,7 +1372,6 @@ function love.draw()
         Cursor.draw()
     end
 end
-local bw, bh= 50, 50
 function love.load()
     love.window.setMode(base_width, base_height, {resizable=false, vsync=true, depth = 24, stencil = 8, msaa = 0, highdpi = false})
     love.window.setTitle("A Random Countryball Game")
@@ -1267,7 +1400,7 @@ function love.load()
     else
         createBaseplate(bw,bh)
     end
-    Props.spawnProps(50, bw, bh, getTileAt)
+    Props.spawnProps(200, bw, bh, getTileAt)
     mobs.spawn("racoon_dog", 14, 14, getTileAt)
     Cursor.load()
     font = lg.newFont("font/font.ttf", 26)
@@ -1422,31 +1555,6 @@ function love.keypressed(key)
         ModsMenu:keypressed(key)
         ModAPI.reset()
         if key == "escape" then gamestate = "menu" end
-    end
-end
-
-function love.run()
-    if love.load then love.load(love.arg.parseGameArguments(arg), arg) end
-
-    local dt = 0
-    local frameCap = 1/64
-
-    return function()
-        love.event.pump()
-        for name, a,b,c,d,e,f in love.event.poll() do
-            if name == "quit" then return a or 0 end
-            love.handlers[name](a,b,c,d,e,f)
-        end
-
-        love.timer.sleep(frameCap)
-        dt = love.timer.step()
-
-        if love.update then love.update(dt) end
-        if love.graphics.isActive() then
-            love.graphics.origin()
-            if love.draw then love.draw() end
-            love.graphics.present()
-        end
     end
 end
 

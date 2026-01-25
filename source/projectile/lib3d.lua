@@ -238,11 +238,14 @@ function lib3d.setSpatialHash(items, hashSize)
         local item = items[i]
         local hx = math.floor(item.x / hashSize)
         local hz = math.floor(item.z / hashSize)
-        local key = hx .. "_" .. hz
-        if not spatialHash[key] then
-            spatialHash[key] = {}
+        local key = hx * 40000 + hz
+        
+        local cell = spatialHash[key]
+        if not cell then
+            cell = {}
+            spatialHash[key] = cell
         end
-        table.insert(spatialHash[key], item)
+        cell[#cell + 1] = item
     end
 end
 
@@ -252,13 +255,17 @@ function lib3d.getSpatialNearby(x, z, hashSize, range)
     local hx = math.floor(x / hashSize)
     local hz = math.floor(z / hashSize)
     local result = {}
+    local count = 0
     
     for dx = -range, range do
+        local curX = (hx + dx) * 40000
         for dz = -range, range do
-            local key = (hx + dx) .. "_" .. (hz + dz)
-            if spatialHash[key] then
-                for i = 1, #spatialHash[key] do
-                    table.insert(result, spatialHash[key][i])
+            local key = curX + (hz + dz)
+            local cell = spatialHash[key]
+            if cell then
+                for i = 1, #cell do
+                    count = count + 1
+                    result[count] = cell[i]
                 end
             end
         end

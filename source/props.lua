@@ -123,6 +123,17 @@ local propTypes = {
         spawnOn = {"stone", "stone_dark"}
     },
     {
+        img = lg.newImage("image/dead_sapling.png"), 
+        maxHealth = 5, 
+        name = "Dead Sapling", 
+        bestTool = "axe",
+        rewards = {
+            {item = "stick", count = {2, 10}},
+            {item = "oak", count = {0, 2}}
+        },
+        spawnOn = {"sandNormal", "sandGypsum"}
+    },
+    {
         img = lg.newImage("image/ore_type/anthracite_coal.png"), 
         maxHealth = 30,
         name = "Anthracite Ore", 

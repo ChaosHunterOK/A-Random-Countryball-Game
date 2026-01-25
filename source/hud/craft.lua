@@ -26,7 +26,6 @@ local function easeInOutExpo(t)
 end
 
 function Crafting:update(dt)
-    local direction = self.open and 1 or -1
     if (self.open and self.anim<1) or (not self.open and self.anim>0) then
         self.timer = math.min(self.timer + dt, self.duration)
         local t = self.timer / self.duration

@@ -9,6 +9,7 @@ local Options = {}
 local optionsFile = "options.json"
 
 Options.items = {
+    {name="FPS Cap", type="slider", value=60, min=30, max=240, step=30},
     {name="Music Volume", type="slider", value=0.5, min=0, max=1, step=0.05},
     {name="Camera Sensitivity", type="slider", value=0, min=-3.0, max=3.0, step=0.1},
     {name="Camera Smoothness", type="slider", value=5.0, min=2.5, max=10.0, step=0.1},
@@ -16,11 +17,23 @@ Options.items = {
     {name="Render Chunk Radious", type="slider", value=4, min=1, max=30, step=1},
     {name="Custom Cursor", type="toggle", value=true},
     {name="Sky Box", type="toggle", value=false},
+    {name="Reset to Defaults", type="action"},
     --{name="Back", type="action"}
+}
+
+Options.defaults = {
+    ["FPS Cap"] = 60,
+    ["Music Volume"] = 0.5,
+    ["Camera Sensitivity"] = 0,
+    ["Camera Smoothness"] = 5.0,
+    ["Chunk Size"] = 4,
+    ["Render Chunk Radious"] = 4,
+    ["Custom Cursor"] = true,
+    ["Sky Box"] = false,
 }
 Options.selectedIndex = 1
 Options.scrollOffset = 0
-Options.visibleRows = 8
+Options.visibleRows = 7
 Options.itemSpacing = 60
 
 function Options:load(camera, chunkCfg, visible_idk)
@@ -37,7 +50,8 @@ function Options:load(camera, chunkCfg, visible_idk)
         end
     end
     for _, item in ipairs(self.items) do
-        if item.name == "Music Volume" then
+        if item.name == "FPS Cap" then
+        elseif item.name == "Music Volume" then
             love.audio.setVolume(item.value)
         elseif item.name == "Camera Sensitivity" then
             camera.sensitivity = item.value
@@ -109,27 +123,36 @@ function Options:draw()
 end
 
 function Options:keypressed(key, camera, chunkCfg, visible_idk)
-    local current = self.items[self.selectedIndex]
+    if key == "up" then
+        self.selectedIndex = self.selectedIndex - 1
+        if self.selectedIndex < 1 then
+            self.selectedIndex = #self.items
+        end
 
-    if self.selectedIndex - 1 < self.scrollOffset then
+    elseif key == "down" then
+        self.selectedIndex = self.selectedIndex + 1
+        if self.selectedIndex > #self.items then
+            self.selectedIndex = 1
+        end
+    end
+
+    if self.selectedIndex < self.scrollOffset + 1 then
         self.scrollOffset = self.selectedIndex - 1
     elseif self.selectedIndex > self.scrollOffset + self.visibleRows then
         self.scrollOffset = self.selectedIndex - self.visibleRows
     end
 
-    if self.scrollOffset < 0 then self.scrollOffset = 0 end
-    if key == "up" then
-        self.selectedIndex = self.selectedIndex - 1
-        if self.selectedIndex < 1 then self.selectedIndex = #self.items end
-    elseif key == "down" then
-        self.selectedIndex = self.selectedIndex + 1
-        if self.selectedIndex > #self.items then self.selectedIndex = 1 end
-    elseif key == "left" or key == "right" then
+    local maxScroll = math.max(0, #self.items - self.visibleRows)
+    self.scrollOffset = math.max(0, math.min(self.scrollOffset, maxScroll))
+
+    local current = self.items[self.selectedIndex]
+
+    if key == "left" or key == "right" then
         if current.type == "slider" then
             local delta = (key == "left") and -current.step or current.step
             local oldValue = current.value
-
             current.value = math.max(current.min, math.min(current.max, current.value + delta))
+
             if current.name == "Music Volume" then
                 love.audio.setVolume(current.value)
             elseif current.name == "Camera Sensitivity" then
@@ -146,14 +169,35 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
                 self:save()
             end
         end
-    elseif current.type == "toggle" then
-        if key == "left" or key == "right" or key == "return" then
-            current.value = not current.value
-            if current.name == "Custom Cursor" then
-                visible_idk.cursor = current.value
-            elseif current.name == "Sky Box" then
-                visible_idk.skyBox = current.value
+    end
+
+    if current.type == "toggle" and (key == "left" or key == "right" or key == "return") then
+        current.value = not current.value
+        if current.name == "Custom Cursor" then
+            visible_idk.cursor = current.value
+        elseif current.name == "Sky Box" then
+            visible_idk.skyBox = current.value
+        end
+        self:save()
+    end
+
+    if current.type == "action" and key == "return" then
+        if current.name == "Reset to Defaults" then
+            for _, item in ipairs(self.items) do
+                if self.defaults[item.name] ~= nil then
+                    item.value = self.defaults[item.name]
+                end
             end
+
+            FPS_CAP = self.defaults["FPS Cap"]
+            love.audio.setVolume(self.defaults["Music Volume"])
+            camera.sensitivity = self.defaults["Camera Sensitivity"]
+            camera.smoothness = self.defaults["Camera Smoothness"]
+            chunkCfg.size = self.defaults["Chunk Size"]
+            chunkCfg.radius = self.defaults["Render Chunk Radious"]
+            visible_idk.cursor = self.defaults["Custom Cursor"]
+            visible_idk.skyBox = self.defaults["Sky Box"]
+
             self:save()
         end
     end
