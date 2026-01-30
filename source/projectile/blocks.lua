@@ -1,202 +1,126 @@
 local love = require "love"
 local utils = require("source.utils")
 local lib3d = require "source.projectile.lib3d"
+local night = require "source.projectile.night_cycle"
+
 local lg = love.graphics
-local cos, sin = math.cos, math.sin
-local floor = math.floor
-local Blocks = {}
-Blocks.placed = {}
-Blocks.materials = {}
-Blocks.baseTiles = nil
+local cos, sin, floor, abs, max = math.cos, math.sin, math.floor, math.abs, math.max
+local vec3Cross, vec3Normalize, vec3Dot = lib3d.vec3Cross, lib3d.vec3Normalize, lib3d.vec3Dot
+
+local Blocks = {
+    placed = {},
+    materials = {},
+    baseTiles = nil,
+    currentBreaking = { tile = nil, progress = 0, max = 1 }
+}
 
 local MAX_QUADS = 12000
-local VERTS_PER_QUAD = 4
 local meshFormat = {
     {"VertexPosition", "float", 2},
     {"VertexTexCoord", "float", 2},
     {"VertexColor", "byte", 4}
 }
 
-local clamp01 = utils.clamp01
+local v_cache = { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0} }
 
 Blocks.durabilities = {
-    dirt = 2,
-    sandNormal = 2,
-    sandGarnet = 3,
-    sandOlivine = 3,
-    stone = 5,
-    granite = 6,
-    gabbro = 7,
-    basalt = 8,
-    rhyolite = 5,
-    pumice = 4,
-    oak = 2,
-    lava = 9999
+    dirt = 2, sandNormal = 2, sandGarnet = 3, sandOlivine = 3,
+    stone = 5, granite = 6, gabbro = 7, basalt = 8,
+    rhyolite = 5, pumice = 4, oak = 2, lava = 9999
 }
 
 Blocks.bestTools = {
-    dirt = "shovel",
-    sandNormal = "shovel",
-    sandGarnet = "shovel",
-    sandOlivine = "shovel",
-    stone = "pickaxe",
-    granite = "pickaxe",
-    gabbro = "pickaxe",
-    basalt = "pickaxe",
-    rhyolite = "pickaxe",
-    pumice = "pickaxe",
-    oak = "axe",
-    lava = nil
+    dirt = "shovel", sandNormal = "shovel", sandGarnet = "shovel",
+    sandOlivine = "shovel", stone = "pickaxe", granite = "pickaxe",
+    gabbro = "pickaxe", basalt = "pickaxe", rhyolite = "pickaxe",
+    pumice = "pickaxe", oak = "axe"
 }
 
-Blocks.currentBreaking = {
-    tile = nil,
-    progress = 0,
-    max = 1,
-}
-
-local function makeCubeFaces(x, y, z, size, texture, baseTiles)
-    local tile = getUnderlyingTile(x, z, baseTiles)
-    local baseY = y
-    local h00 = sampleTileHeightAt(tile, x - 0.5, z - 0.5) or baseY
-    local h10 = sampleTileHeightAt(tile, x + 0.5, z - 0.5) or baseY
-    local h11 = sampleTileHeightAt(tile, x + 0.5, z + 0.5) or baseY
-    local h01 = sampleTileHeightAt(tile, x - 0.5, z + 0.5) or baseY
-
-    local v1 = {x - 0.5, h00, z - 0.5}
-    local v2 = {x + 0.5, h10, z - 0.5}
-    local v5 = {x - 0.5, h01, z + 0.5}
-    local v6 = {x + 0.5, h11, z + 0.5}
-
-    local v4 = {x - 0.5, h00 + 1.0, z - 0.5}
-    local v3 = {x + 0.5, h10 + 1.0, z - 0.5}
-    local v8 = {x - 0.5, h01 + 1.0, z + 0.5}
-    local v7 = {x + 0.5, h11 + 1.0, z + 0.5}
-
-    return {
-        -- front
-        {v1, v2, v3, v4, texture},
-        -- back
-        {v6, v5, v8, v7, texture},
-        -- left
-        {v5, v1, v4, v8, texture},
-        -- right
-        {v2, v6, v7, v3, texture},
-        -- top
-        {v4, v3, v7, v8, texture},
-        -- bottom
-        {v1, v5, v6, v2, texture},
-    }
+local function sampleTileHeightAt(tile, x, z)
+    if not tile then return nil end
+    local fx, fz = x - floor(x), z - floor(z)
+    return tile[1][2] * (1-fx) * (1-fz) +
+           tile[2][2] * fx * (1-fz) +
+           tile[3][2] * fx * fz +
+           tile[4][2] * (1-fx) * fz
 end
 
-function getUnderlyingTile(x, z, baseTiles)
+local function getUnderlyingTile(x, z, baseTiles)
     if not baseTiles then return nil end
     for i = 1, #baseTiles do
         local tile = baseTiles[i]
         local v1, v3 = tile[1], tile[3]
-        local minX, maxX = v1[1] < v3[1] and v1[1] or v3[1], v1[1] < v3[1] and v3[1] or v1[1]
-        local minZ, maxZ = v1[3] < v3[3] and v1[3] or v3[3], v1[3] < v3[3] and v3[3] or v1[3]
-        if x >= minX and x <= maxX and z >= minZ and z <= maxZ then
+        if x >= v1[1] and x <= v3[1] and z >= v1[3] and z <= v3[3] then
             return tile
         end
     end
     return nil
 end
 
-function sampleTileHeightAt(tile, x, z)
-    if not tile then return nil end
-    local v1, v2, v3, v4 = tile[1], tile[2], tile[3], tile[4]
-
-    local fx = x - floor(x)
-    local fz = z - floor(z)
-
-    local h =
-        v1[2] * (1-fx) * (1-fz) +
-        v2[2] * fx * (1-fz) +
-        v3[2] * fx * fz +
-        v4[2] * (1-fx) * fz
-
-    return h
-end
-
-local night = require"source.projectile.night_cycle"
-
-local function dot(ax,ay,az, bx,by,bz) 
-    return lib3d.vec3Dot(ax, ay, az, bx, by, bz)
-end
-
 function Blocks.generate(camera, renderDistanceSq)
-    Blocks.placed = Blocks.placed or {}
     camera:updateProjectionConstants()
-    if #Blocks.placed > 0 then
-        lib3d.setSpatialHash(Blocks.placed, 1)
-    end
+    if #Blocks.placed > 0 then lib3d.setSpatialHash(Blocks.placed, 1) end
     
     local camX, camZ = camera.x, camera.z
-
-    local entries = {}
-    local count = 0
-    local sunAngle = (night.time / (night.dayLength)) * (2 * math.pi)
-    local sunDirX = math.cos(sunAngle)
-    local sunDirY = math.sin(sunAngle) * 0.65 + 0.35
-    local sunDirZ = math.sin(sunAngle + 0.7)
-    sunDirX, sunDirY, sunDirZ = lib3d.vec3Normalize(sunDirX, sunDirY, sunDirZ)
-
-    local textureMul = night.getTextureMultiplier() or {1,1,1}
-    local r = textureMul[1]
-    local g = textureMul[2]
-    local b = textureMul[3]
-    local avgMul = (textureMul[1] + textureMul[2] + textureMul[3]) / 3
-
-    local lightFactor = (night.getLight and night.getLight() or 1.0)
-    local lightCurve = lightFactor * lightFactor
-    local ambient = 0.05 + 1 * lightCurve
+    local entries, count = {}, 0
+    local sunAngle = (night.time / night.dayLength) * (math.pi * 2)
+    local snX, snY, snZ = vec3Normalize(cos(sunAngle), sin(sunAngle) * 0.65 + 0.35, sin(sunAngle + 0.7))
+    local texMul = night.getTextureMultiplier() or {1, 1, 1}
+    local ambient = 0.05 + (night.getLight and night.getLight()^2 or 1.0)
 
     for bi = 1, #Blocks.placed do
-        local block = Blocks.placed[bi]
-        local cubeFaces = makeCubeFaces(block.x,block.y,block.z,1,Blocks.materials[block.type],Blocks.baseTiles)
-        for fi = 1, #cubeFaces do
-            local face = cubeFaces[fi]
-            local verts = {}
-            local visible = true
-            local nx, ny, nz = 0,0,0
-            local v1, v2, v3 = face[1], face[2], face[3]
-            local ux, uy, uz = v2[1]-v1[1], v2[2]-v1[2], v2[3]-v1[3]
-            local vx, vy, vz = v3[1]-v1[1], v3[2]-v1[2], v3[3]-v1[3]
-            nx, ny, nz = lib3d.vec3Cross(ux, uy, uz, vx, vy, vz)
-            nx, ny, nz = lib3d.vec3Normalize(nx, ny, nz)
+        local b = Blocks.placed[bi]
+        local distSq = (b.x - camX)^2 + (b.z - camZ)^2
+        if distSq <= renderDistanceSq then
+            local tile = getUnderlyingTile(b.x, b.z, Blocks.baseTiles)
+            local h00 = sampleTileHeightAt(tile, b.x - 0.5, b.z - 0.5) or b.y
+            local h10 = sampleTileHeightAt(tile, b.x + 0.5, b.z - 0.5) or b.y
+            local h11 = sampleTileHeightAt(tile, b.x + 0.5, b.z + 0.5) or b.y
+            local h01 = sampleTileHeightAt(tile, b.x - 0.5, b.z + 0.5) or b.y
+            local vs = {
+                {b.x-0.5, h00, b.z-0.5}, {b.x+0.5, h10, b.z-0.5}, {b.x+0.5, h11, b.z+0.5}, {b.x-0.5, h01, b.z+0.5},
+                {b.x-0.5, h00+1, b.z-0.5}, {b.x+0.5, h10+1, b.z-0.5}, {b.x+0.5, h11+1, b.z+0.5}, {b.x-0.5, h01+1, b.z+0.5}
+            }
 
-            for i = 1, 4 do
-                local v = face[i]
-                local sx, sy2 = camera:project3D(v[1], v[2], v[3])
-                if not sx then visible = false; break end
-                verts[i*2-1], verts[i*2] = sx, sy2
-            end
+            local faces = {
+                {vs[1], vs[2], vs[6], vs[5]}, {vs[3], vs[4], vs[8], vs[7]},
+                {vs[4], vs[1], vs[5], vs[8]}, {vs[2], vs[3], vs[7], vs[6]},
+                {vs[5], vs[6], vs[7], vs[8]}, {vs[1], vs[4], vs[3], vs[2]}
+            }
 
-            if visible then
-                local v1f, v3f = face[1], face[3]
-                local cx = (v1f[1] + v3f[1]) * 0.5 - camX
-                local cz = (v1f[3] + v3f[3]) * 0.5 - camZ
-                local distSq = cx*cx + cz*cz
-                if distSq <= renderDistanceSq then
-                    local diff = math.max(0, dot(nx, ny, nz, sunDirX, sunDirY, sunDirZ))
-                    local faceBrightness = ambient + diff * (1.0 - ambient)
-                    if faceBrightness > 1 then faceBrightness = 1 end
-                    faceBrightness = faceBrightness
-                    local finalColor = {r, g, b}
-
-                    if count >= MAX_QUADS then
-                        break
+            for f = 1, 6 do
+                local face = faces[f]
+                local ux, uy, uz = face[2][1]-face[1][1], face[2][2]-face[1][2], face[2][3]-face[1][3]
+                local vx, vy, vz = face[3][1]-face[1][1], face[3][2]-face[1][2], face[3][3]-face[1][3]
+                local nx, ny, nz = vec3Normalize(vec3Cross(ux, uy, uz, vx, vy, vz))
+                local vcx, vcy, vcz = face[1][1] - camX, face[1][2] - camera.y, face[1][3] - camZ
+                local dot = vec3Dot(nx, ny, nz, vcx, vcy, vcz)
+                if dot > 0 then
+                    local pVerts, visible = {}, true
+                    for i = 1, 4 do
+                        local sx, sy = camera:project3D(face[i][1], face[i][2], face[i][3])
+                        if not sx then visible = false; break end
+                        pVerts[i*2-1], pVerts[i*2] = sx, sy
                     end
 
-                    count = count + 1
-                    entries[count] = {
-                        verts = verts,
-                        dist = distSq,
-                        texture = face[5],
-                        color = finalColor,
-                        isBlock = true
-                    }
+                    if visible and count < MAX_QUADS then
+                        local diff = max(0, vec3Dot(nx, ny, nz, snX, snY, snZ))
+                        local br = max(0, shadowFactor or 1.0) * (ambient + diff * (1.0 - ambient))
+                        
+                        local centerxf = (face[1][1] + face[3][1]) / 2
+                        local centeryf = (face[1][2] + face[3][2]) / 2
+                        local centerzf = (face[1][3] + face[3][3]) / 2
+                        local fDistSq = (centerxf - camX)^2 + (centeryf - camera.y)^2 + (centerzf - camZ)^2
+
+                        count = count + 1
+                        entries[count] = {
+                            verts = pVerts, 
+                            dist = fDistSq,
+                            texture = Blocks.materials[b.type],
+                            color = {texMul[1]*br, texMul[2]*br, texMul[3]*br},
+                            isBlock = true
+                        }
+                    end
                 end
             end
         end
@@ -206,30 +130,21 @@ function Blocks.generate(camera, renderDistanceSq)
     return entries
 end
 
-local function makeVertsMeshFromVerts(verts, color, heightDiff)
-    local r, g, b, a = floor(color[1]*255), floor(color[2]*255), floor(color[3]*255), 255
-    local vRepeat = math.max(1, heightDiff or 1)
-
-    return {
-        {verts[1], verts[2], 0, 0, r, g, b, a},
-        {verts[3], verts[4], 1, 0, r, g, b, a},
-        {verts[5], verts[6], 1, vRepeat, r, g, b, a},
-        {verts[7], verts[8], 0, vRepeat, r, g, b, a},
-    }
-end
-
 function Blocks.ensureAllMeshes(tbl)
     for i = 1, #tbl do
         local t = tbl[i]
-
         if t and t.verts and not t.mesh then
-            t.vertsMesh = makeVertsMeshFromVerts(t.verts, t.color)
-
-            t.mesh = lg.newMesh(meshFormat,t.vertsMesh,"fan","static")
-
-            if t.texture then
-                pcall(function() t.texture:setWrap("repeat", "repeat") end)
-                t.mesh:setTexture(t.texture)
+            local r, g, b = floor(t.color[1]*255), floor(t.color[2]*255), floor(t.color[3]*255)
+            local vMesh = {
+                {t.verts[1], t.verts[2], 0, 0, r, g, b, 255},
+                {t.verts[3], t.verts[4], 1, 0, r, g, b, 255},
+                {t.verts[5], t.verts[6], 1, 1, r, g, b, 255},
+                {t.verts[7], t.verts[8], 0, 1, r, g, b, 255}
+            }
+            t.mesh = lg.newMesh(meshFormat, vMesh, "fan", "static")
+            if t.texture then 
+                t.texture:setWrap("repeat", "repeat")
+                t.mesh:setTexture(t.texture) 
             end
         end
     end
@@ -238,81 +153,54 @@ end
 function Blocks.draw(entries)
     for i = 1, #entries do
         local e = entries[i]
-        lg.setColor(e.color or {1,1,1})
-        if e.mesh then
-            lg.draw(e.mesh)
-        else
-            lg.polygon("fill", e.verts)
-        end
+        lg.setColor(e.color[1], e.color[2], e.color[3], 1)
+        if e.mesh then lg.draw(e.mesh) else lg.polygon("fill", e.verts) end
     end
-    lg.setColor(1,1,1,1)
+    lg.setColor(1, 1, 1, 1)
 end
 
 function Blocks.raycast(camera, mx, my, maxDistance)
-    local width, height = love.graphics.getWidth(), love.graphics.getHeight()
-    local dirX, dirY, dirZ = camera:getRay(mx, my, width, height)
-
-    local step = 0.05
+    local w, h = lg.getDimensions()
+    local dx, dy, dz = camera:getRay(mx, my, w, h)
     local lastEmpty = {x=camera.x, y=camera.y, z=camera.z}
 
-    for d = 0, maxDistance, step do
-        local rx = camera.x + dirX * d
-        local ry = camera.y + dirY * d
-        local rz = camera.z + dirZ * d
-        lastEmpty.x, lastEmpty.y, lastEmpty.z = rx, ry, rz
+    for d = 0, maxDistance, 0.1 do
+        local rx, ry, rz = camera.x + dx*d, camera.y + dy*d, camera.z + dz*d
         local nearby = lib3d.getSpatialNearby(rx, rz, 1, 1)
         
         for i = 1, #nearby do
-            local block = nearby[i]
-            local bx, by, bz = block.x, block.y, block.z
-
-            if math.abs(rx - bx) <= 0.5
-            and math.abs(ry - by) <= 0.5
-            and math.abs(rz - bz) <= 0.5 then
-                local dx = rx - bx
-                local dy = ry - by
-                local dz = rz - bz
-                local ax, ay, az = math.abs(dx), math.abs(dy), math.abs(dz)
-
-                local nx, ny, nz = 0, 0, 0
-                if ax > ay and ax > az then
-                    nx = (dx > 0) and 1 or -1
-                elseif ay > ax and ay > az then
-                    ny = (dy > 0) and 1 or -1
-                else
-                    nz = (dz > 0) and 1 or -1
-                end
-
-                return block, {nx=nx, ny=ny, nz=nz}, lastEmpty
+            local b = nearby[i]
+            if abs(rx-b.x) <= 0.5 and abs(ry-b.y) <= 0.5 and abs(rz-b.z) <= 0.5 then
+                local offX, offY, offZ = rx-b.x, ry-b.y, rz-b.z
+                local ax, ay, az = abs(offX), abs(offY), abs(offZ)
+                local norm = {nx=0, ny=0, nz=0}
+                if ax > ay and ax > az then norm.nx = offX > 0 and 1 or -1
+                elseif ay > ax and ay > az then norm.ny = offY > 0 and 1 or -1
+                else norm.nz = offZ > 0 and 1 or -1 end
+                return b, norm, lastEmpty
             end
         end
+        lastEmpty.x, lastEmpty.y, lastEmpty.z = rx, ry, rz
     end
-
     return nil, nil, lastEmpty
 end
 
 function Blocks.getPlacementPosition(hitBlock, normal)
-    return
-        hitBlock.x + normal.nx,
-        hitBlock.y + normal.ny,
-        hitBlock.z + normal.nz
+    return hitBlock.x + normal.nx, hitBlock.y + normal.ny, hitBlock.z + normal.nz
 end
 
 function Blocks.place(x, y, z, blockType)
-    Blocks.placed[#Blocks.placed+1] = {
-        x = floor(x) + 0.5,
-        y = floor(y) ,
-        z = floor(z) + 0.5,
+    table.insert(Blocks.placed, {
+        x = floor(x) + 0.5, y = floor(y), z = floor(z) + 0.5,
         type = blockType
-    }
+    })
 end
 
-function Blocks.load(materials)
+function Blocks.load(m)
     Blocks.materials = {
-        oak = materials.oak,
-        stone = materials.stone,
-        stone_dark = materials.stone_dark or materials.stone,
-        granite = materials.granite or materials.phenocryst
+        oak = m.oak, stone = m.stone,
+        stone_dark = m.stone_dark or m.stone,
+        granite = m.granite or m.phenocryst
     }
 end
 

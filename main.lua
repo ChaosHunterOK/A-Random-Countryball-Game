@@ -199,7 +199,7 @@ local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
 
 function createBaseplate(width, depth, seed, formatType)
-    formatType = formatType or "debug"
+    formatType = formatType or "normal"
 
     setSeed(seed or os.time())
     local nx, nz = width + 1, depth + 1
@@ -909,7 +909,7 @@ function love.mousepressed(mx, my, button)
             end
         end
             local tile, cx, cy, cz, kind = getTileUnderCursor(mx, my)
-            if tile then
+            if tile and button == 1 then
                 local selected = Inventory:getSelected()
                 local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
 
@@ -965,21 +965,41 @@ function love.mousepressed(mx, my, button)
                     end
                 end
             end
+        local selected = Inventory:getSelected()
         if button == 2 then
             local selected = Inventory:getSelected()
             if selected and blockPlacables[selected.type] then
-                local tile, cx, cy, cz = getTileUnderCursor(mx, my, 20)
-                if tile then
-                    local newX, newY, newZ = floor(cx), floor(cy)+1, floor(cz)
+                local hitObj, cx, cy, cz, kind = getTileUnderCursor(mx, my, 20)
+                if hitObj then
+                    local newX, newY, newZ
+                    if kind == "block" then
+                        local dx = cx - hitObj.x
+                        local dy = cy - hitObj.y
+                        local dz = cz - hitObj.z
+                        local ax, ay, az = math.abs(dx), math.abs(dy), math.abs(dz)
+
+                        if ay > ax and ay > az then
+                            newX, newY, newZ = hitObj.x, hitObj.y + (dy > 0 and 1 or -1), hitObj.z
+                        elseif ax > ay and ax > az then
+                            newX, newY, newZ = hitObj.x + (dx > 0 and 1 or -1), hitObj.y, hitObj.z
+                        else
+                            newX, newY, newZ = hitObj.x, hitObj.y, hitObj.z + (dz > 0 and 1 or -1)
+                        end
+                    else
+                        newX, newY, newZ = math.floor(cx) + 0.5, math.floor(cy) + 1, math.floor(cz) + 0.5
+                    end
                     local occupied = false
                     for _, b in ipairs(Blocks.placed) do
-                        if b.x==newX and b.y==newY and b.z==newZ then
+                        if math.abs(b.x - newX) < 0.1 and 
+                        math.abs(b.y - newY) < 0.1 and 
+                        math.abs(b.z - newZ) < 0.1 then
                             occupied = true
                             break
                         end
                     end
+
                     if not occupied then
-                        Blocks.place(newX,newY,newZ,selected.type)
+                        Blocks.place(newX, newY, newZ, selected.type)
                         selected.count = selected.count - 1
                         if selected.count <= 0 then
                             Inventory.items[Inventory.selectedSlot] = nil
