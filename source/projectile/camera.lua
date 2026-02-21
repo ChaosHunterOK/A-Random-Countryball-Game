@@ -75,7 +75,7 @@ function camera:project3D(x, y, z)
     local z1 = dx * sy + dz * cy
     local y1 = dy * cp - z1 * sp
     local z2 = dy * sp + z1 * cp
-    if z2 < 0.1 then return nil, nil end
+    if z2 < 0.1 then return nil, nil, z2 end
     local inv = 1 / (z2 * self.fovHalfTan)
     local screenX = (x1 * inv / self.aspect) * self.hw + self.hw
     local screenY = (-y1 * inv) * self.hh + self.hh

@@ -40,6 +40,7 @@ local Mapsave = require(proj.."mapsave")
 local Particles = require(proj.."particles")
 local skyBox = require(proj.."skybox")
 local nightCycle = require(proj.."night_cycle")
+local Audio = require(src.."audio")
 
 local visible_idk = {cursor = true, skyBox = false}
 local clamp, perlin, getChunkKey = utils.clamp, utils.fastPerlin, utils.getChunkKey
@@ -47,12 +48,6 @@ local clamp, perlin, getChunkKey = utils.clamp, utils.fastPerlin, utils.getChunk
 local particlesImgs = {
     smoke = lg.newImage(imgF.."smoke.png")
 }
-
-local songs = {
-    main = "music/music.mp3",
-    menu = "music/menu.mp3"
-}
-local audioSources = {}
 
 local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
@@ -125,7 +120,7 @@ local materials = loadMaterials({
 })
 
 local Blocks = require(proj.."blocks")
-Blocks.load(materials)
+--Blocks.load(materials)
 
 local tileGrid, baseplateTiles, heights = {}, {}, {}
 local mapSeed = os.time()
@@ -462,7 +457,7 @@ local function createNewWorld(name)
     regenerateMap(bh, bw, os.time())
     Mapsave.save(baseplateTiles, materials, nm)
     currentWorldName = nm
-    Blocks.baseTiles = baseplateTiles
+    --Blocks.baseTiles = baseplateTiles
     
     countryball.x, countryball.y, countryball.z = bh /2, 10, bh /2
     countryball.health = countryball.maxHealth
@@ -477,8 +472,8 @@ local function createNewWorld(name)
     Inventory.heldCount = 0
     Mapsave.saveInventory(Inventory, nm)
     
-    Blocks.placed = {}
-    Mapsave.saveBlocks(Blocks.placed, nm)
+    --Blocks.placed = {}
+    --Mapsave.saveBlocks(Blocks.placed, nm)
     
     updateTileMeshes(true)
     gamestate = "game"
@@ -538,22 +533,6 @@ local function loadWorld(name)
             Inventory.heldDurability = invData.heldDurability
         end
         
-        local blocksData = Mapsave.loadBlocks(name)
-        if blocksData then
-            Blocks.placed = {}
-            for i = 1, #blocksData do
-                local blockData = blocksData[i]
-                if blockData then
-                    table.insert(Blocks.placed, {
-                        x = blockData.x,
-                        y = blockData.y,
-                        z = blockData.z,
-                        type = blockData.type
-                    })
-                end
-            end
-        end
-        
         updateTileMeshes(true)
         gamestate = "game"
     end
@@ -575,7 +554,7 @@ end
 local dirtTimers = {}
 local DIRT_TO_GRASS_TIME = 30
 
-Blocks.baseTiles = baseplateTiles
+--Blocks.baseTiles = baseplateTiles
 local preloadedTiles = {}
 local lastCamChunkX, lastCamChunkZ = -999, -999
 local visibleTileSet = {}
@@ -881,7 +860,6 @@ function love.mousepressed(mx, my, button)
                     return
                 end
             end
-            local selected = Inventory:getSelected()
             if selected and selected.type == "apple_seed" then
                 local tile, cx, cy, cz = getTileUnderCursor(mx, my)
                 if tile and Props.plantAppleSeed(tile, cx, cz) then
@@ -909,7 +887,7 @@ function love.mousepressed(mx, my, button)
             end
         end
             local tile, cx, cy, cz, kind = getTileUnderCursor(mx, my)
-            if tile and button == 1 then
+            --[[if tile and button == 1 then
                 local selected = Inventory:getSelected()
                 local multiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
 
@@ -964,8 +942,7 @@ function love.mousepressed(mx, my, button)
                         end
                     end
                 end
-            end
-        local selected = Inventory:getSelected()
+            end]]
         if button == 2 then
             local selected = Inventory:getSelected()
             if selected and blockPlacables[selected.type] then
@@ -989,7 +966,7 @@ function love.mousepressed(mx, my, button)
                         newX, newY, newZ = math.floor(cx) + 0.5, math.floor(cy) + 1, math.floor(cz) + 0.5
                     end
                     local occupied = false
-                    for _, b in ipairs(Blocks.placed) do
+                    --[[for _, b in ipairs(Blocks.placed) do
                         if math.abs(b.x - newX) < 0.1 and 
                         math.abs(b.y - newY) < 0.1 and 
                         math.abs(b.z - newZ) < 0.1 then
@@ -1004,7 +981,7 @@ function love.mousepressed(mx, my, button)
                         if selected.count <= 0 then
                             Inventory.items[Inventory.selectedSlot] = nil
                         end
-                    end
+                    end]]
                 end
             end
         end
@@ -1017,16 +994,8 @@ function love.mousereleased(mx, my, button)
     end
 end
 
-local titleX = 2000
-local titleTargetX = base_width - titleImage:getWidth() - 30
-local titleSlideSpeed = 8
-
 local function expEase(current, target, speed, dt)
     return current + (target - current) * (1 - math.exp(-speed * dt))
-end
-
-local function lerp(a, b, t)
-    return a + (b - a) * t
 end
 
 local title = {
@@ -1111,13 +1080,14 @@ function love.update(dt)
             camera.y = camera.y + (cy - camera.y) * s
             camera.z = camera.z + (cz - camera.z) * s
             if countryball.y <= -10 then healthBar:setHealth(0) end
-            audioSources.main:play()
+            local mainSource = Audio.getSource("main")
+            if mainSource and not mainSource:isPlaying() then mainSource:play() end
             healthBar:update(dt)
             hungerBar:update(dt)
             Knapping:update(dt)
             mobs.update(dt, getTileAt)
             local cue = Collision.updateEntity
-            cue(countryball, dt, tileGrid, Blocks.placed)
+            --[[cue(countryball, dt, tileGrid, Blocks.placed)
             for _, t in ipairs(itemsOnGround) do
                 cue(t, dt, tileGrid, Blocks.placed)
             end
@@ -1126,7 +1096,7 @@ function love.update(dt)
             end
             for _, e in ipairs(mobs.entities) do
                 cue(e, dt, tileGrid, Blocks.placed)
-            end
+            end]]
             Inventory:update(dt)
             Crafting:update(dt)
             Props.updateProps(dt)
@@ -1135,7 +1105,7 @@ function love.update(dt)
             if autosaveTimer >= autosaveInterval and currentWorldName then
                 Mapsave.saveCountryball(countryball, currentWorldName)
                 Mapsave.saveInventory(Inventory, currentWorldName)
-                Mapsave.saveBlocks(Blocks.placed, currentWorldName)
+                --Mapsave.saveBlocks(Blocks.placed, currentWorldName)
                 autosaveTimer = 0
             end
         end
@@ -1163,16 +1133,16 @@ function getTileUnderCursor(mx, my, maxDistance)
     local rdx, rdy, rdz = rdx/len, rdy/len, rdz/len
     
     local px, py, pz = camera.x, camera.y, camera.z
-    local blocks = Blocks.placed
+    --local blocks = Blocks.placed
 
     for t = 0, maxDistance, 0.1 do
         local wx, wy, wz = px + rdx*t, py + rdy*t, pz + rdz*t
-        for i = 1, #blocks do
+        --[[for i = 1, #blocks do
             local block = blocks[i]
             if math.abs(wx - block.x) <= 0.5 and math.abs(wy - block.y) <= 0.5 and math.abs(wz - block.z) <= 0.5 then
                 return block, block.x, block.y, block.z, "block"
             end
-        end
+        end]]
 
         local tile = getTileAt(wx, wz)
         if tile and not tile.isAir then
@@ -1198,8 +1168,8 @@ function drawTiles()
         skyBox.draw()
         lg.setColor(1, 1, 1, 1)
     end
-    local blockEntries = Blocks.generate(camera, renderDistanceSq)
-    Blocks.ensureAllMeshes(blockEntries)
+    --local blockEntries = Blocks.generate(camera, renderDistanceSq)
+    --Blocks.ensureAllMeshes(blockEntries)
     local renderQueue = {}
     for i=1, #preloadedTiles do
         local tile = preloadedTiles[i]
@@ -1209,14 +1179,14 @@ function drawTiles()
             obj = tile
         })
     end
-    for i=1, #blockEntries do
+    --[[for i=1, #blockEntries do
         local block = blockEntries[i]
         table.insert(renderQueue, {
             dist = block.dist,
             type = "block",
             obj = block
         })
-    end
+    end]]
     
     for _, p in ipairs(Props.props) do
         table.insert(renderQueue, {
@@ -1252,10 +1222,16 @@ function drawTiles()
             local e = entry.obj
             lg.setColor(1, 1, 1, 1)
             lg.draw(e.mesh or e.verts)
-        elseif entry.type == "block" then
-            local e = entry.obj
-            lg.setColor(e.color or {1, 1, 1})
-            lg.draw(e.mesh or e.verts)
+        --[[elseif entry.type == "block" then
+            local b = entry.obj
+            for _, face in ipairs(b.faces) do
+                lg.setColor(1, 1, 1, 1)
+                if face.mesh then 
+                    lg.draw(face.mesh) 
+                else 
+                    lg.polygon("fill", face.verts)
+                end
+            end]]
         elseif entry.type == "prop" then
             local singlePropTable = { entry.obj } 
             Props.drawProps(singlePropTable, drawWithStencil)
@@ -1431,10 +1407,7 @@ function love.load()
     SkinsMenu.applySkin("countryball")
     ModsMenu.load()
 
-    for name, path in pairs(songs) do
-        audioSources[name] = love.audio.newSource(path, "stream")
-        audioSources[name]:setLooping(true)
-    end
+    Audio.load()
 
     gl.glEnable(GL.DEPTH_TEST)
     gl.glEnable(GL.CULL_FACE)
@@ -1446,13 +1419,7 @@ function love.load()
 end
 
 function switchSong(name)
-    for _, source in pairs(audioSources) do
-        source:stop()
-    end
-    if audioSources[name] then
-        audioSources[name]:setLooping(true)
-        audioSources[name]:play()
-    end
+    Audio.switchSong(name)
 end
 
 function love.mousemoved(x, y, dx, dy)
