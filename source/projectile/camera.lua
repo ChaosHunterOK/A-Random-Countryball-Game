@@ -1,7 +1,9 @@
 local camera = {}
-camera.x, camera.y, camera.z = 8, 5, -12
+camera.x, camera.y, camera.z = 10, 5, 10
 camera.yaw, camera.pitch = 0, -0.3
 camera.zoom = 1.6
+camera.free = false
+camera.speed = 10
 camera.sensitivity = 0.002
 camera.fov = 70
 camera.aspect = 1
@@ -28,11 +30,13 @@ function camera:updateProjectionConstants(w, h)
     h = h or base_height
     self.hw, self.hh = w * 0.5, h * 0.5
     self.aspect = w / h
-    self.fovRad = rad(self.fov) / self.zoom
-    self.fovHalfTan = tan(self.fovRad * 0.5)
+    self.fovRad = math.rad(self.fov)
+    self.fovHalfTan = math.tan(self.fovRad * 0.5) / self.zoom
     self._f = 1 / self.fovHalfTan
-    self.lookX = sin(self.yaw)
-    self.lookZ = cos(self.yaw)
+    self._fx = self._f / self.aspect
+    self._fy = self._f
+    self.lookX = math.sin(self.yaw)
+    self.lookZ = math.cos(self.yaw)
 end
 
 function camera:isPointInFront(x, z)
@@ -41,30 +45,36 @@ function camera:isPointInFront(x, z)
 end
 
 function camera:getForward()
-    if camera._lastYaw ~= camera.yaw or camera._lastPitch ~= camera.pitch then
-        local cp = cos(camera.pitch)
-        local sp = sin(camera.pitch)
-        local cy = cos(camera.yaw)
-        local sy = sin(camera.yaw)
+    if self._lastYaw ~= self.yaw or self._lastPitch ~= self.pitch then
+        local cp = cos(self.pitch)
+        local sp = sin(self.pitch)
+        local cy = cos(self.yaw)
+        local sy = sin(self.yaw)
 
-        local f = camera._forward
+        local f = self._forward
         f.x = sy * cp
         f.y = -sp
         f.z = cy * cp
         
-        camera._lastYaw = camera.yaw
-        camera._lastPitch = camera.pitch
+        self._lastYaw = self.yaw
+        self._lastPitch = self.pitch
     end
-    return camera._forward
+    return self._forward
 end
 
 function camera:getRight()
     local f = self:getForward()
-    return {
-        x = -f.z,
-        y = 0,
-        z = f.x
-    }
+    local worldUp = {x = 0, y = 1, z = 0}
+
+    local r = self._right
+    r.x = f.y * worldUp.z - f.z * worldUp.y
+    r.y = f.z * worldUp.x - f.x * worldUp.z
+    r.z = f.x * worldUp.y - f.y * worldUp.x
+
+    local mag = math.sqrt(r.x*r.x + r.y*r.y + r.z*r.z)
+    r.x, r.y, r.z = r.x/mag, r.y/mag, r.z/mag
+
+    return r
 end
 
 function camera:project3D(x, y, z)
@@ -75,8 +85,8 @@ function camera:project3D(x, y, z)
     local z1 = dx * sy + dz * cy
     local y1 = dy * cp - z1 * sp
     local z2 = dy * sp + z1 * cp
-    if z2 < 0.1 then return nil, nil, z2 end
-    local inv = 1 / (z2 * self.fovHalfTan)
+    if z2 <= 0.001 then return nil end
+    local inv = self._f / z2
     local screenX = (x1 * inv / self.aspect) * self.hw + self.hw
     local screenY = (-y1 * inv) * self.hh + self.hh
     return screenX, screenY, z2
@@ -85,22 +95,18 @@ end
 function camera:getRay(mx, my, w, h)
     local nx = (mx / w - 0.5) * 2
     local ny = (0.5 - my / h) * 2
-
-    local aspect = w / h
-    local tanFOV = math.tan(rad(self.fov / self.zoom) * 0.5)
-    
-    local cy, sy = cos(self.yaw), sin(self.yaw)
-    local cp, sp = cos(self.pitch), sin(self.pitch)
-    local forwardX, forwardY, forwardZ = sy * cp, -sp, cy * cp
-    local rightX, rightY, rightZ = cy, 0, -sy
-    local upX, upY, upZ = sy * sp, cp, cy * sp
-
-    local rx = forwardX + (rightX * nx * aspect * tanFOV) + (upX * ny * tanFOV)
-    local ry = forwardY + (rightY * nx * aspect * tanFOV) + (upY * ny * tanFOV)
-    local rz = forwardZ + (rightZ * nx * aspect * tanFOV) + (upZ * ny * tanFOV)
-
+    local aspect = self.aspect
+    local tanFOV = self.fovHalfTan
+    local f = self:getForward()
+    local r = self:getRight()
+    local upX = r.y * f.z - r.z * f.y
+    local upY = r.z * f.x - r.x * f.z
+    local upZ = r.x * f.y - r.y * f.x
+    local rx = f.x + r.x * nx * aspect * tanFOV + upX * ny * tanFOV
+    local ry = f.y + r.y * nx * aspect * tanFOV + upY * ny * tanFOV
+    local rz = f.z + r.z * nx * aspect * tanFOV + upZ * ny * tanFOV
     local mag = math.sqrt(rx*rx + ry*ry + rz*rz)
-    return rx/mag, ry/mag, rz/mag
+    return rx / mag, ry / mag, rz / mag
 end
 
 function camera:getMVPMatrix()

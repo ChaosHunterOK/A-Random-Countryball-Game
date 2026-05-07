@@ -13,27 +13,28 @@ local shakingProps = {}
 local treeCutImg = lg.newImage("image/tree_cut.png")
 local occupiedTiles = {}
 
+local im = "image/"
 local treeStages = {
     {
         name = "planted",
-        img = lg.newImage("image/tree/planted.png"),
+        img = lg.newImage(im.."tree/planted.png"),
         growTime = 20
     },
     {
         name = "sprout",
-        img = lg.newImage("image/tree/sprout.png"),
+        img = lg.newImage(im.."tree/sprout.png"),
         growTime = 30
     },
     {
         name = "sapling",
-        img = lg.newImage("image/tree/sapling.png"),
+        img = lg.newImage(im.."tree/sapling.png"),
         growTime = 40
     }
 }
 
 local propTypes = {
     {
-        img = lg.newImage("image/tree.png"), 
+        img = lg.newImage(im.."tree.png"), 
         maxHealth = 10, 
         name = "Tree", 
         bestTool = "axe", 
@@ -44,7 +45,7 @@ local propTypes = {
         spawnOn = {"grassNormal", "grassHot", "grassCold"}
     },
     {
-        img = lg.newImage("image/rock.png"), 
+        img = lg.newImage(im.."rock.png"), 
         maxHealth = 25, 
         name = "Rock", 
         bestTool = "pickaxe", 
@@ -54,7 +55,17 @@ local propTypes = {
         spawnOn = {"stone", "granite", "grassNormal"}
     },
     {
-        img = lg.newImage("image/ore_type/iron.png"),
+        img = lg.newImage(im.."mini_rock.png"), 
+        maxHealth = 5, 
+        name = "Mini Rock", 
+        bestTool = "pickaxe", 
+        rewards = {
+            {item = "stone", count = {1, 1}}
+        },
+        spawnOn = {"grassCold", "grassHot", "grassNormal"}
+    },
+    {
+        img = lg.newImage(im.."ore_type/iron.png"),
         maxHealth = 32, 
         name = "Iron Ore", 
         bestTool = "pickaxe",
@@ -65,7 +76,7 @@ local propTypes = {
         spawnOn = {"stone", "stone_dark", "granite"}
     },
     {
-        img = lg.newImage("image/bush.png"), 
+        img = lg.newImage(im.."bush.png"), 
         maxHealth = 2, 
         name = "Bush", 
         bestTool = "hoe", 
@@ -75,7 +86,7 @@ local propTypes = {
         spawnOn = {"grassNormal", "grassHot", "grassCold"}
     },
     {
-        img = lg.newImage("image/porphyry_rock.png"), 
+        img = lg.newImage(im.."porphyry_rock.png"), 
         maxHealth = 25, 
         name = "Porphyry Rock", 
         bestTool = "pickaxe", 
@@ -85,7 +96,7 @@ local propTypes = {
         spawnOn = {"stone", "porphyry"}
     },
     {
-        img = lg.newImage("image/dark_rock.png"), 
+        img = lg.newImage(im.."dark_rock.png"), 
         maxHealth = 25, 
         name = "Dark Rock", 
         bestTool = "pickaxe", 
@@ -95,7 +106,7 @@ local propTypes = {
         spawnOn = {"stone_dark"}
     },
     {
-        img = lg.newImage("image/pumice_rock.png"), 
+        img = lg.newImage(im.."pumice_rock.png"), 
         maxHealth = 25, 
         name = "Pumice Rock", 
         bestTool = "pickaxe", 
@@ -105,7 +116,7 @@ local propTypes = {
         spawnOn = {"pumice", "granite"}
     },
     {
-        img = lg.newImage("image/ore_type/flint.png"), 
+        img = lg.newImage(im.."ore_type/flint.png"), 
         maxHealth = 32, 
         name = "Flint Ore", 
         bestTool = "pickaxe",
@@ -116,14 +127,14 @@ local propTypes = {
         spawnOn = {"stone", "grassNormal"}
     },
     {
-        img = lg.newImage("image/ore_type/amorphous.png"), 
+        img = lg.newImage(im.."ore_type/amorphous.png"), 
         maxHealth = 34, 
         name = "Amorphous Ore", 
         bestTool = "pickaxe",
         spawnOn = {"stone", "stone_dark"}
     },
     {
-        img = lg.newImage("image/dead_sapling.png"), 
+        img = lg.newImage(im.."dead_sapling.png"), 
         maxHealth = 5, 
         name = "Dead Sapling", 
         bestTool = "axe",
@@ -134,21 +145,21 @@ local propTypes = {
         spawnOn = {"sandNormal", "sandGypsum"}
     },
     {
-        img = lg.newImage("image/ore_type/anthracite_coal.png"), 
+        img = lg.newImage(im.."ore_type/anthracite_coal.png"), 
         maxHealth = 30,
         name = "Anthracite Ore", 
         bestTool = "pickaxe",
         spawnOn = {"stone", "stone_dark"}
     },
     {
-        img = lg.newImage("image/ore_type/bituminous_coal.png"), 
+        img = lg.newImage(im.."ore_type/bituminous_coal.png"), 
         maxHealth = 30, 
         name = "Bituminous Ore", 
         bestTool = "pickaxe",
         spawnOn = {"stone"}
     },
     {
-        img = lg.newImage("image/ore_type/lignite_coal.png"), 
+        img = lg.newImage(im.."ore_type/lignite_coal.png"), 
         maxHealth = 30, 
         name = "Lignite Ore", 
         bestTool = "pickaxe", 
@@ -158,7 +169,7 @@ local propTypes = {
         spawnOn = {"stone", "dirt"}
     },
     {
-        img = lg.newImage("image/ore_type/ruby.png"), 
+        img = lg.newImage(im.."ore_type/ruby.png"), 
         maxHealth = 35, 
         name = "Ruby Ore", 
         bestTool = "pickaxe",
@@ -183,27 +194,28 @@ local function tableContains(t, val)
 end
 
 local function spawnProps(num, mapWidth, mapDepth, getTileAt)
-    local spawned = 0
-    local attempts = 0
+    local spawned, attempts = 0, 0
     local maxAttempts = num * 50
 
     while spawned < num and attempts < maxAttempts do
         attempts = attempts + 1
-        
+
         local x = random() * (mapWidth - 1)
         local z = random() * (mapDepth - 1)
         local tile = getTileAt(x, z)
-        
+
         if tile and tile.textureName then
             local idx = random(#propTypes)
             local t = propTypes[idx]
+
             if tableContains(t.spawnOn, tile.textureName) then
-                props[#props+1] = {
+                props[#props + 1] = {
                     typeIndex = idx,
                     x = x,
                     z = z,
                     y = tile.height,
                     health = t.maxHealth,
+                    maxHealth = t.maxHealth,
                     shakeTimer = 0,
                     shakeOffsetX = 0,
                     shakeOffsetY = 0,
@@ -245,8 +257,10 @@ end
 local function updateProps(dt)
     for i = #shakingProps, 1, -1 do
         local prop = shakingProps[i]
-        prop.shakeTimer = prop.shakeTimer - dt
-        if prop.shakeTimer <= 0 then
+        local timer = prop.shakeTimer - dt
+        prop.shakeTimer = timer
+
+        if timer <= 0 then
             prop.shakeOffsetX, prop.shakeOffsetY = 0, 0
             table.remove(shakingProps, i)
         else
@@ -262,17 +276,22 @@ local function updateProps(dt)
         if p.type == "growingTree" then
             p.growTimer = p.growTimer - dt
             if p.growTimer <= 0 then
-                p.stage = p.stage + 1
-                if treeStages[p.stage] then
-                    p.img = treeStages[p.stage].img
-                    p.growTimer = treeStages[p.stage].growTime
+                local nextStage = p.stage + 1
+                local stageData = treeStages[nextStage]
+
+                if stageData then
+                    p.stage = nextStage
+                    p.img = stageData.img
+                    p.growTimer = stageData.growTime
                 else
+                    local treeType = propTypes[1]
                     props[i] = {
                         typeIndex = 1,
                         x = p.x,
                         z = p.z,
                         y = p.y,
-                        health = propTypes[1].maxHealth,
+                        health = treeType.maxHealth,
+                        maxHealth = treeType.maxHealth,
                         shakeTimer = 0,
                         shakeOffsetX = 0,
                         shakeOffsetY = 0,

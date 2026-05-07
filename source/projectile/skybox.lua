@@ -5,38 +5,48 @@ local camera = require("source.projectile.camera")
 
 local Skybox = {}
 Skybox.texture = nil
+Skybox.color = {1, 1, 1, 1}
 
-local domeVerts3D = {}
+local sphereVerts3D = {}
 local skyMesh = nil
 local verts2DCache = {}
 
-local function makeSkyDome(radius, rings, segments)
+local function makeSphere(radius, rings, segments)
     local verts = {}
-    local vertCount = 0
 
     for r = 0, rings - 1 do
         local v1 = r / rings
         local v2 = (r + 1) / rings
 
-        local phi1 = v1 * math.pi * 0.5
-        local phi2 = v2 * math.pi * 0.5
+        local phi1 = v1 * math.pi
+        local phi2 = v2 * math.pi
 
-        for s = 0, segments do
-            local u = s / segments
-            local theta = u * math.pi * 2
+        for s = 0, segments - 1 do
+            local u1 = s / segments
+            local u2 = (s + 1) / segments
 
-            local x1 = math.cos(theta) * math.cos(phi1) * radius
-            local y1 = math.sin(phi1) * radius
-            local z1 = math.sin(theta) * math.cos(phi1) * radius
+            local theta1 = u1 * math.pi * 2
+            local theta2 = u2 * math.pi * 2
+            local function point(theta, phi, u, v)
+                return {
+                    math.cos(theta) * math.sin(phi) * radius,
+                    math.cos(phi) * radius,
+                    math.sin(theta) * math.sin(phi) * radius,
+                    u, v
+                }
+            end
 
-            local x2 = math.cos(theta) * math.cos(phi2) * radius
-            local y2 = math.sin(phi2) * radius
-            local z2 = math.sin(theta) * math.cos(phi2) * radius
+            local p1 = point(theta1, phi1, u1, v1)
+            local p2 = point(theta1, phi2, u1, v2)
+            local p3 = point(theta2, phi2, u2, v2)
+            local p4 = point(theta2, phi1, u2, v1)
+            table.insert(verts, p1)
+            table.insert(verts, p2)
+            table.insert(verts, p3)
 
-            vertCount = vertCount + 1
-            verts[vertCount] = {x1, y1, z1, u, v1}
-            vertCount = vertCount + 1
-            verts[vertCount] = {x2, y2, z2, u, v2}
+            table.insert(verts, p1)
+            table.insert(verts, p3)
+            table.insert(verts, p4)
         end
     end
 
@@ -45,53 +55,72 @@ end
 
 function Skybox.load()
     Skybox.texture = lg.newImage("image/skyBox/top.png")
-    Skybox.texture:setWrap("repeat", "clamp")
+    Skybox.texture:setWrap("repeat", "repeat")
 
-    domeVerts3D = makeSkyDome(400, 50, 48)
+    sphereVerts3D = makeSphere(400, 50, 48)
 
     local dummy = {}
-    for i = 1, #domeVerts3D do
-        dummy[i] = {0, 0, 0, 0}
+    for i = 1, #sphereVerts3D do
+        dummy[i] = {0, 0, 0, 0, 1, 1, 1, 1}
     end
 
     skyMesh = lg.newMesh(
         {
             {"VertexPosition", "float", 2},
             {"VertexTexCoord", "float", 2},
+            {"VertexColor", "float", 4},
         },
         dummy,
-        "strip",
+        "triangles",
         "dynamic"
     )
 
     skyMesh:setTexture(Skybox.texture)
 end
 
+function Skybox.setColor(r, g, b, a)
+    Skybox.color = {r or 1, g or 1, b or 1, a or 1}
+end
+
 function Skybox.draw()
     if not skyMesh then return end
 
     lib3d.resetTempPool()
-    
+
     local cx, cy, cz = camera.x, camera.y, camera.z
-    local skyVertCount = #domeVerts3D
-    if #verts2DCache < skyVertCount then
-        for i = #verts2DCache + 1, skyVertCount do
-            verts2DCache[i] = {0, 0, 0, 0}
+    local count = #sphereVerts3D
+
+    if #verts2DCache < count then
+        for i = #verts2DCache + 1, count do
+            verts2DCache[i] = {0, 0, 0, 0, 1, 1, 1, 1}
         end
     end
 
-    for i = 1, skyVertCount do
-        local v = domeVerts3D[i]
-        local sx, sy, sz = camera:project3D(v[1] + cx, v[2] + cy, v[3] + cz)
-        
+    local cr, cg, cb, ca = unpack(Skybox.color)
+
+    for i = 1, count do
+        local v = sphereVerts3D[i]
+        local sx, sy = camera:project3D(v[1], v[2], v[3])
+
         local vert = verts2DCache[i]
-        vert[1], vert[2], vert[3], vert[4] = sx, sy, v[4], v[5]
+        if sx and sy then
+            vert[1] = sx
+            vert[2] = sy
+        else
+            vert[1] = 0
+            vert[2] = 0
+        end
+        vert[3] = v[4]
+        vert[4] = v[5]
+        vert[5] = cr
+        vert[6] = cg
+        vert[7] = cb
+        vert[8] = ca
     end
 
     skyMesh:setVertices(verts2DCache)
 
-    lg.setDepthMode(nil)
-    lg.setColor(1, 1, 1)
+    lg.setDepthMode("lequal", false)
     lg.draw(skyMesh)
 end
 

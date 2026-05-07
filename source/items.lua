@@ -1,70 +1,86 @@
 local love = require "love"
 local lg = love.graphics
 
+local PATH = "image/items/"
+local function item(img, stack, eatable, opts)
+    opts = opts or {}
+    return {
+        img = PATH .. img,
+        stack = stack or 10,
+        eatable = eatable or false,
+        durability = opts.durability,
+        toolType = opts.toolType,
+        material = opts.material
+    }
+end
+
 local itemDefinitions = {
-    apple = {"image/items/apple.png", 10, true},
-    green_apple = {"image/items/green_apple.png", 10, true},
-    amorphous = {"image/items/amorphous.png", 1, false},
-    bituminous_coal = {"image/items/bituminous_coal.png", 20, false},
-    flint = {"image/items/flint.png", 20, false},
-    iron_raw = {"image/items/iron_raw.png", 20, false},
-    map = {"image/items/map.png", 1, false},
-    oak = {"image/items/oak.png", 50, false},
-    paper = {"image/items/paper.png", 50, false},
-    phenocrysts = {"image/items/phenocrysts.png", 10, false},
-    porphyry = {"image/items/porphyry.png", 20, false},
-    ruby = {"image/items/ruby.png", 5, false},
-    snowball = {"image/items/snowball.png", 20, false},
-    stick = {"image/items/stick.png", 50, false, nil, nil, material = "stick"},
-    firestarter = {"image/items/firestarter.png", 25, false, nil, nil, material = "stick"},
-    stone = {"image/items/stone.png", 50, false},
-    dark_stone = {"image/items/dark_stone.png", 50, false},
-    pumice = {"image/items/pumice.png", 35, false},
-    wood = {"image/items/wood.png", 50, false},
-    anthracite_coal = {"image/items/anthracite_coal.png", 20, false},
-    lignite_coal = {"image/items/lignite_coal.png", 20, false},
-    dirt = {"image/items/dirt.png", 40, false},
-    leaf = {"image/items/leaf.png", 50, false},
-    apple_seed = {"image/items/seeds/apple.png", 50, false},
+    apple = item("apple.png", 10, true),
+    green_apple = item("green_apple.png", 10, true),
 
-    stone_shovel_head = {"image/items/heads/stone/shovel.png", 5, false},
-    stone_hoe_head = {"image/items/heads/stone/hoe.png", 5, false},
-    stone_hammer_head = {"image/items/heads/stone/hammer.png", 5, false},
-    stone_pick_head = {"image/items/heads/stone/pick.png", 5, false},
-    stone_knife_head = {"image/items/heads/stone/knife.png", 5, false},
-    stone_javeline_head = {"image/items/heads/stone/javeline.png", 5, false},
+    amorphous = item("amorphous.png", 1),
+    bituminous_coal = item("bituminous_coal.png", 20),
+    flint = item("flint.png", 20),
+    iron_raw = item("iron_raw.png", 20),
+    map = item("map.png", 1),
+    oak = item("oak.png", 50),
+    paper = item("paper.png", 50),
+    phenocrysts = item("phenocrysts.png", 10),
+    porphyry = item("porphyry.png", 20),
+    ruby = item("ruby.png", 5),
+    snowball = item("snowball.png", 20),
+    clay = item("clay.png", 20),
 
-    stone_shovel = {"image/items/shovel_type/stone.png", 2, false, durability = 50, toolType = "shovel", material = "stone"},
-    stone_hoe = {"image/items/hoe_type/stone.png", 2, false, durability = 50, toolType = "hoe", material = "stone"},
-    stone_knife = {"image/items/knife_type/stone.png", 2, false, durability = 50, toolType = "knife", material = "stone"},
-    stone_hammer = {"image/items/hammer_type/stone.png", 2, false, durability = 50, toolType = "hammer", material = "stone"},
-    stone_tool = {"image/items/thing.png", 2, false, 2, durability = 35, toolType = "pickaxe", material = "stone"},
-    stone_pickaxe = {"image/items/pickaxe_type/stone.png", 2, false, 2, durability = 50, toolType = "pickaxe", material = "stone"},
+    stick = item("stick.png", 50, false, {material = "stick"}),
+    firestarter = item("firestarter.png", 25, false, {material = "stick"}),
 
-    iron_shovel = {"image/items/shovel_type/iron.png", 2, false, durability = 60, toolType = "shovel", material = "iron"},
-    iron_hoe = {"image/items/hoe_type/iron.png", 2, false, durability = 50, toolType = "hoe", material = "iron"},
-    iron_pickaxe = {"image/items/pickaxe_type/iron.png", 2, false, durability = 60, toolType = "pickaxe", material = "iron"},
+    stone = item("stone.png", 50, false, {material = "stone"}),
+    dark_stone = item("dark_stone.png", 50, false, {material = "stone"}),
+    pumice = item("pumice.png", 35, false, {material = "stone"}),
+    wood_planks = item("wood.png", 50, false, {material = "wood"}),
 
-    ruby_pickaxe = {"image/items/pickaxe_type/iron.png", 2, false, durability = 60, toolType = "pickaxe", material = "ruby"},
+    anthracite_coal = item("anthracite_coal.png", 20),
+    lignite_coal = item("lignite_coal.png", 20),
+    dirt = item("dirt.png", 40),
+    leaf = item("leaf.png", 50),
+    gravel = item("gravel.png", 50),
+    apple_seed = item("seeds/apple.png", 50),
+    nail = item("nail.png", 50),
+
+    --tool heads
+    stone_shovel_head = item("heads/stone/shovel.png", 5),
+    stone_hoe_head = item("heads/stone/hoe.png", 5),
+    stone_hammer_head = item("heads/stone/hammer.png", 5),
+    stone_pick_head = item("heads/stone/pick.png", 5),
+    stone_knife_head = item("heads/stone/knife.png", 5),
+    stone_javeline_head = item("heads/stone/javeline.png", 5),
+
+    --stone tools
+    stone_shovel = item("shovel_type/stone.png", 2, false, {durability = 50, toolType = "shovel", material = "stone"}),
+    stone_hoe = item("hoe_type/stone.png", 2, false, {durability = 50, toolType = "hoe", material = "stone"}),
+    stone_knife = item("knife_type/stone.png", 2, false, {durability = 50, toolType = "knife", material = "stone"}),
+    stone_hammer = item("hammer_type/stone.png", 2, false, {durability = 50, toolType = "hammer", material = "stone"}),
+    stone_pickaxe = item("pickaxe_type/stone.png", 2, false, {durability = 50, toolType = "pickaxe", material = "stone"}),
+    stone_tool = item("thing.png", 2, false, {durability = 50, toolType = "pickaxe", material = "stone"}),
+
+    --iron tools
+    iron_shovel = item("shovel_type/iron.png", 2, false, { durability = 60, toolType = "shovel", material = "iron"}),
+    iron_hoe = item("hoe_type/iron.png", 2, false, {durability = 50, toolType = "hoe", material = "iron"}),
+    iron_pickaxe = item("pickaxe_type/iron.png", 2, false, {durability = 60, toolType = "pickaxe", material = "iron"}),
+
+    ruby_pickaxe = item("pickaxe_type/iron.png", 2, false, {durability = 60, toolType = "pickaxe", material = "ruby"}),
 }
 
 local items = {}
 local itemTypes = {}
 
 for name, def in pairs(itemDefinitions) do
-    local img = lg.newImage(def[1])
+    local img = lg.newImage(def.img)
+    def.img = img
+
     items[name] = img
-
-    itemTypes[name] = {
-        img = img,
-        stack = def[2] or 10,
-        eatable = def[3] or false,
-        durability = def.durability or nil,
-        toolType = def.toolType,
-        material = def.material
-    }
+    itemTypes[name] = def
 end
-
 
 local toolTypeBonus = {
     axe = 1.75,
@@ -83,7 +99,6 @@ local materialMultiplier = {
     stick = 0.2,
     wood = 0.8,
 }
-
 local itemsOnGround = {}
 
 local function dropItem(x, y, z, itemType, count, durability, velocityY)
@@ -106,20 +121,22 @@ local function getItemImage(itemType)
     return itemTypes[itemType] and itemTypes[itemType].img
 end
 
-local function getToolMultiplier(itemType, propBestTool)
+local function getToolMultiplier(itemType, bestTool)
     local item = itemTypes[itemType]
     if not item then return 1 end
 
-    local material = item.material
-    local toolType = item.toolType
-
-    local materialMul = (material and materialMultiplier[material]) or 1.0
-    if not toolType or toolType ~= propBestTool then
-        return materialMul * 0.35
+    if not item.toolType then
+        return 0.4
     end
-    local typeBonus = toolTypeBonus[toolType] or 1.0
 
-    return materialMul * typeBonus
+    local materialMul = materialMultiplier[item.material] or 1
+    local typeBonus = toolTypeBonus[item.toolType] or 1
+
+    if item.toolType ~= bestTool then
+        return 0.6 * materialMul
+    end
+
+    return typeBonus * materialMul
 end
 
 return {

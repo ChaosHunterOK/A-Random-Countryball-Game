@@ -1,4 +1,3 @@
-local utils = require("source.utils")
 local m = math
 local floor, sqrt, min, max, abs = m.floor, m.sqrt, m.min, m.max, m.abs
 
@@ -60,13 +59,6 @@ local function getQuadHeight(x, z, tile)
     end
 end
 
-local function safeNormalize(x, y, z)
-    local lenSq = x*x + y*y + z*z
-    if lenSq < 1e-10 then return 0, 1, 0 end
-    local len = sqrt(lenSq)
-    return x/len, y/len, z/len
-end
-
 local function findTileForPosition(x, z, tileGrid)
     local gx, gz = floor(x), floor(z)
     
@@ -113,8 +105,6 @@ function collision.resolveWalls(entity, tileGrid)
     local stepHeight = 0.5
     local entityCenterX = entity.x
     local entityCenterZ = entity.z
-    local entityHalfW = (entity.w or 1) * 0.5
-    local entityHalfD = (entity.d or 1) * 0.5
     
     local gx, gz = floor(entityCenterX), floor(entityCenterZ)
     

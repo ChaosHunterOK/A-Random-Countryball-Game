@@ -42,7 +42,7 @@ for i = 0, WN-1 do
     waves_ffi[i].uvSpeed = w.uvSpeed
 end
 
-local projBuf = ffi.new("double[8]")
+local projBuf = ffi.new("double[12]")
 local V_TMP = { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0} }
 local S_TMP = { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0} }
 
@@ -50,7 +50,7 @@ local MAX_QUADS = 4000
 local outPool = {}
 for i = 1, MAX_QUADS do 
     outPool[i] = {
-        verts = ffi.new("float[8]"),
+        verts = ffi.new("float[12]"),
         brightness = {0, 0, 0},
         uvOffset = {u=0, v=0},
         dist = 0,
@@ -84,13 +84,13 @@ end
 Verts.waterShader = waterShader
 
 local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
-    local sx1, sy1 = camera:project3D(v1[1], v1[2], v1[3])
+    local sx1, sy1, sz1 = camera:project3D(v1[1], v1[2], v1[3])
     if not sx1 then return false end
-    local sx2, sy2 = camera:project3D(v2[1], v2[2], v2[3])
+    local sx2, sy2, sz2 = camera:project3D(v2[1], v2[2], v2[3])
     if not sx2 then return false end
-    local sx3, sy3 = camera:project3D(v3[1], v3[2], v3[3])
+    local sx3, sy3, sz3 = camera:project3D(v3[1], v3[2], v3[3])
     if not sx3 then return false end
-    local sx4, sy4 = camera:project3D(v4[1], v4[2], v4[3])
+    local sx4, sy4, sz4 = camera:project3D(v4[1], v4[2], v4[3])
     if not sx4 then return false end
 
     if (sx1 < 0 and sx2 < 0 and sx3 < 0 and sx4 < 0) or
@@ -100,8 +100,10 @@ local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
         return false
     end
 
-    buf[0], buf[1], buf[2], buf[3] = sx1, sy1, sx2, sy2
-    buf[4], buf[5], buf[6], buf[7] = sx3, sy3, sx4, sy4
+    buf[0], buf[1], buf[2] = sx1, sy1, sz1
+    buf[3], buf[4], buf[5] = sx2, sy2, sz2
+    buf[6], buf[7], buf[8] = sx3, sy3, sz3
+    buf[9], buf[10], buf[11] = sx4, sy4, sz4
     return true
 end
 
@@ -161,24 +163,27 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         local v1x, v1y, v1z = t1[1], t1[2], t1[3]
         local v3x, v3y, v3z = t3[1], t3[2], t3[3]
 
-        local tx, tz = (v1x + v3x) * 0.5, (v1z + v3z) * 0.5
-        local dx, dz = tx - camX, tz - camZ
-        local dist2 = dx*dx + dz*dz
-        if dist2 > renderDistanceSq then goto continue end
-
         local t2, t4 = tile[2], tile[4]
         local v2x, v2y, v2z = t2[1], t2[2], t2[3]
         local v4x, v4y, v4z = t4[1], t4[2], t4[3]
+
+        local tx, tz = (v1x + v3x) * 0.5, (v1z + v3z) * 0.5
+        local ty = (v1y + v2y + v3y + v4y) * 0.25
+        local dx, dy, dz = tx - camX, ty - camera.y, tz - camZ
+        local dist2 = dx*dx + dz*dz
+        local tileRadius = 1.5
+        if dist2 > (renderDistanceSq + tileRadius * tileRadius) then goto continue end
 
         local tex = tile.texture
         local isWater = (tex == waterSmall or tex == waterMed or tex == waterDeep)
 
         if isWater then
-            local dy, dx, dz
-            dy, dx, dz = gerstner_f(v1x, v1z); v1y = v1y + dy; v1x = v1x + dx; v1z = v1z + dz
-            dy, dx, dz = gerstner_f(v2x, v2z); v2y = v2y + dy; v2x = v2x + dx; v2z = v2z + dz
-            dy, dx, dz = gerstner_f(v3x, v3z); v3y = v3y + dy; v3x = v3x + dx; v3z = v3z + dz
-            dy, dx, dz = gerstner_f(v4x, v4z); v4y = v4y + dy; v4x = v4x + dx; v4z = v4z + dz
+            dist2 = dist2 - 0.01
+            local wy, wx, wz
+            wy, wx, wz = gerstner_f(v1x, v1z); v1y = v1y + wy; v1x = v1x + wx; v1z = v1z + wz
+            wy, wx, wz = gerstner_f(v2x, v2z); v2y = v2y + wy; v2x = v2x + wx; v2z = v2z + wz
+            wy, wx, wz = gerstner_f(v3x, v3z); v3y = v3y + wy; v3x = v3x + wx; v3z = v3z + wz
+            wy, wx, wz = gerstner_f(v4x, v4z); v4y = v4y + wy; v4x = v4x + wx; v4z = v4z + wz
         end
 
         V_TMP[1][1], V_TMP[1][2], V_TMP[1][3] = v1x, v1y, v1z
@@ -205,8 +210,9 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
             outCount = outCount + 1
             local entry = outPool[outCount]
-            for j=0,7 do entry.verts[j] = projBuf[j] end
-            entry.dist = dist2
+            for j=0,11 do entry.verts[j] = projBuf[j] end
+            local zavg = (projBuf[2] + projBuf[5] + projBuf[8] + projBuf[11]) * 0.25
+            entry.dist = zavg
             entry.texture = tex
             entry.uvOffset.u = isWater and uvU or 0
             entry.uvOffset.v = isWater and uvV or 0
@@ -254,13 +260,12 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
                     local sideVisible = projectQuadToBuf(camera, S1, S2, S3, S4, projBuf)
                     if sideVisible then
-                        local midx, midz = (v1x_s + v2x_s) * 0.5 - camX, (v1z_s + v2z_s) * 0.5 - camZ
-                        local dist = midx*midx + midz*midz
-                        if not (dist > renderDistanceSq * 0.4) and dist <= renderDistanceSq then
+                        --if not (dist > renderDistanceSq * 0.4) and dist <= renderDistanceSq then
                             outCount = outCount + 1
                             local entry = outPool[outCount]
-                            for j=0,7 do entry.verts[j] = projBuf[j] end
-                            entry.dist = dist
+                            for j=0,11 do entry.verts[j] = projBuf[j] end
+                            local zavg = (projBuf[2] + projBuf[5] + projBuf[8] + projBuf[11]) * 0.25
+                            entry.dist = zavg
                             entry.texture = tileTexture
                             entry.tile = tile
                             entry.uvOffset.u = 0
@@ -271,7 +276,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
                             local b_arr = entry.brightness
                             b_arr[1], b_arr[2], b_arr[3] = tr, tg, tb
-                        end
+                        --end
                     end
                 end
             end
@@ -282,44 +287,33 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
     for i = 1, outCount do result_table[i] = outPool[i] end
     for i = outCount + 1, #result_table do result_table[i] = nil end
-    
     table.sort(result_table, function(a, b) return a.dist > b.dist end)
     return result_table
 end
 
 function Verts.ensureAllMeshes(visibleTiles, fallback)
-    Verts.meshCount = 0
-    local meshFormat = {
-        {"VertexPosition", "float", 2},
-        {"VertexTexCoord", "float", 2},
-        {"VertexColor", "float", 4},
-    }
+    local meshCount = #visibleTiles
     
-    local poolIdx = 1
-
-    for i = 1, #visibleTiles do
+    for i = 1, meshCount do
         local t = visibleTiles[i]
-        Verts.meshCount = i
-        
-        local mesh = Verts.meshPool[poolIdx]
+        local mesh = Verts.meshPool[i]
         if not mesh then
-            mesh = lg.newMesh(meshFormat, 4, "fan", "dynamic")
-            Verts.meshPool[poolIdx] = mesh
+            mesh = lg.newMesh({
+                {"VertexPosition", "float", 2},
+                {"VertexTexCoord", "float", 2},
+                {"VertexColor", "float", 4},
+            }, 4, "fan", "dynamic")
+            Verts.meshPool[i] = mesh
         end
-        poolIdx = poolIdx + 1
-
-        local v = t.verts
-        local uv = t.uvOffset
-        local br = t.brightness
+        local v, uv, br = t.verts, t.uvOffset, t.brightness
         local vr = t.vRepeat or 1
-        
+
         mesh:setVertices({
-            {v[0], v[1], 0 + uv.u, 0 + uv.v, br[1], br[2], br[3], 1},
-            {v[2], v[3], 1 + uv.u, 0 + uv.v, br[1], br[2], br[3], 1},
-            {v[4], v[5], 1 + uv.u, vr + uv.v, br[1], br[2], br[3], 1},
-            {v[6], v[7], 0 + uv.u, vr + uv.v, br[1], br[2], br[3], 1},
+            {v[0], v[1],   uv.u,     uv.v,      br[1], br[2], br[3], 1},
+            {v[3], v[4],   uv.u + 1, uv.v,      br[1], br[2], br[3], 1},
+            {v[6], v[7],   uv.u + 1, uv.v + vr, br[1], br[2], br[3], 1},
+            {v[9], v[10],  uv.u,     uv.v + vr, br[1], br[2], br[3], 1},
         })
-        
         local tex = t.texture or fallback
         if tex then
             if not wrappedTextures[tex] then
@@ -329,17 +323,6 @@ function Verts.ensureAllMeshes(visibleTiles, fallback)
             mesh:setTexture(tex)
         end
         t.mesh = mesh
-    end
-    
-    local poolSize = #Verts.meshPool
-    if poolSize > Verts.meshCount + 64 then
-        for i = Verts.meshCount + 1, poolSize do
-            local mesh = Verts.meshPool[i]
-            if mesh then
-                mesh:release()
-                Verts.meshPool[i] = nil
-            end
-        end
     end
 end
 

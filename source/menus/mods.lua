@@ -20,25 +20,25 @@ love.filesystem.createDirectory(MODS_FOLDER)
 
 function ModsMenu.load()
     ModsMenu.mods = {}
-
     ModsMenu.loadState()
+
+    local ModAPI = require("source.mod_api")
+    ModAPI.reset()
 
     local entries = love.filesystem.getDirectoryItems(MODS_FOLDER)
     for _, folder in ipairs(entries) do
         local path = MODS_FOLDER .. "/" .. folder
         if love.filesystem.getInfo(path, "directory") then
             table.insert(ModsMenu.mods, folder)
-
-            if ModsMenu.enabled[folder] == nil then
-                ModsMenu.enabled[folder] = false
-            end
+            if ModsMenu.enabled[folder] == nil then ModsMenu.enabled[folder] = false end
+            
             if ModsMenu.enabled[folder] then
                 ModsMenu.loadMod(folder)
             end
         end
     end
-
     table.sort(ModsMenu.mods)
+    ModsMenu.reloadMods()
 end
 
 function ModsMenu.loadState()
@@ -67,14 +67,22 @@ function ModsMenu.saveState()
     love.filesystem.write(MODS_STATE_FILE, encoded)
 end
 
+function ModsMenu.reloadMods()
+    local ModAPI = require("source.mod_api")
+    ModAPI.reset()
+    for _, modName in ipairs(ModsMenu.mods) do
+        if ModsMenu.enabled[modName] then
+            ModsMenu.loadMod(modName)
+        end
+    end
+end
+
 function ModsMenu.toggle(modName)
     ModsMenu.enabled[modName] = not ModsMenu.enabled[modName]
-
-    if ModsMenu.enabled[modName] then
-        ModsMenu.loadMod(modName)
-    end
-
     ModsMenu.saveState()
+    ModsMenu.reloadMods()
+    local ModAPI = require("source.mod_api")
+    ModAPI.needsWorldReset = true
 end
 
 function ModsMenu.loadMod(modName)

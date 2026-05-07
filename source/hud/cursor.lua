@@ -14,10 +14,7 @@ local function getFrames(animImages, animName, dt, state)
     if type(frames) ~= "table" then
         return frames
     end
-
-    state.frameTimer = state.frameTimer or 0
-    state.frameIndex = state.frameIndex or 1
-    local duration = state.frameDuration or 0.12
+    local duration = state.frameDuration
 
     state.frameTimer = state.frameTimer + dt
     if state.frameTimer >= duration then

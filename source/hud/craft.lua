@@ -40,6 +40,7 @@ function Crafting:draw(inventory, itemTypes, items)
     local scaleX = lg.getWidth()/1000
     local scaleY = lg.getHeight()/525
     local scale = math.min(scaleX, scaleY)
+    self.hoveredItem = nil
 
     lg.setColor(0,0,0,self.bgAlpha)
     lg.rectangle("fill", 0,0, lg.getWidth(), lg.getHeight())
@@ -51,8 +52,6 @@ function Crafting:draw(inventory, itemTypes, items)
     local startY = lg.getHeight()/2 + 355*(1-self.anim) - 100
 
     local mx, my = love.mouse.getPosition()
-    self.hoveredItem = nil
-
     for i = 1, 4 do
         local col = (i-1)%2
         local row = math.floor((i-1)/2)
@@ -125,7 +124,6 @@ function Crafting:draw(inventory, itemTypes, items)
         if slot and slot.type then
             local itemImg = itemTypes[slot.type] and itemTypes[slot.type].img
             if itemImg then
-                local mx, my = love.mouse.getPosition()
                 local scaleX = lg.getWidth()/1000
                 local scaleY = lg.getHeight()/525
                 local scale = math.min(scaleX, scaleY)
@@ -217,19 +215,40 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                     slot.count = slot.count - 1
                     if slot.count <= 0 then self.slots[i] = nil end
                 end
-                self.draggingSlot = i
+                self.draggingSlot = nil
+                self.draggingFrom = nil
                 return
             elseif inventory.heldItem then
                 local stackLimit = itemTypes[inventory.heldItem].stack or 1
+                if self.draggingFrom == i then
+                    self.slots[i] = {
+                        type = inventory.heldItem,
+                        count = inventory.heldCount,
+                        durability = inventory.heldDurability
+                    }
+                    inventory.heldItem = nil
+                    inventory.heldCount = 0
+                    inventory.heldDurability = nil
+                    return
+                end
                 if not slot then
                     if button == 1 then
-                        self.slots[i] = {type = inventory.heldItem, count = inventory.heldCount, durability = inventory.heldDurability}
+                        self.slots[i] = {
+                            type = inventory.heldItem,
+                            count = inventory.heldCount,
+                            durability = inventory.heldDurability
+                        }
                         inventory.heldItem, inventory.heldCount = nil, 0
                     elseif button == 2 then
-                        self.slots[i] = { type = inventory.heldItem, count = 1, durability = inventory.heldDurability}
+                        self.slots[i] = {
+                            type = inventory.heldItem,
+                            count = 1,
+                            durability = inventory.heldDurability
+                        }
                         inventory.heldCount = inventory.heldCount - 1
                         if inventory.heldCount <= 0 then inventory.heldItem = nil end
                     end
+
                 elseif slot.type == inventory.heldItem then
                     if button == 2 and slot.count < stackLimit then
                         slot.count = slot.count + 1
@@ -240,9 +259,18 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                         inventory.heldCount = inventory.heldCount - canTake
                     end
                     if inventory.heldCount <= 0 then inventory.heldItem = nil end
+
                 elseif button == 1 then
-                    local temp = { type = slot.type, count = slot.count, durability = slot.durability }
-                    self.slots[i] = {type = inventory.heldItem, count = inventory.heldCount, durability = inventory.heldDurability}
+                    local temp = {
+                        type = slot.type,
+                        count = slot.count,
+                        durability = slot.durability
+                    }
+                    self.slots[i] = {
+                        type = inventory.heldItem,
+                        count = inventory.heldCount,
+                        durability = inventory.heldDurability
+                    }
                     inventory.heldItem = temp.type
                     inventory.heldCount = temp.count
                     inventory.heldDurability = temp.durability
@@ -253,12 +281,38 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
     end
 end
 
-function Crafting:mousereleased(_, _, button)
+--[[function Crafting:mousereleased(_, _, button, inventory)
     if button == 1 then
+        if inventory.heldItem then
+            if self.draggingFrom and not self.slots[self.draggingFrom] then
+                self.slots[self.draggingFrom] = {
+                    type = inventory.heldItem,
+                    count = inventory.heldCount,
+                    durability = inventory.heldDurability
+                }
+            else
+                for i = 1, 4 do
+                    if not self.slots[i] then
+                        self.slots[i] = {
+                            type = inventory.heldItem,
+                            count = inventory.heldCount,
+                            durability = inventory.heldDurability
+                        }
+                        break
+                    end
+                end
+            end
+
+            inventory.heldItem = nil
+            inventory.heldCount = 0
+            inventory.heldDurability = nil
+        end
+
         self.draggingSlot = nil
+        self.draggingFrom = nil
         self.isDragging = false
     end
-end
+end]]
 
 function Crafting:checkRecipe()
     for _, recipe in ipairs(self.recipes) do

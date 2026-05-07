@@ -15,6 +15,8 @@ Inventory.heldItem = nil
 Inventory.heldCount = 0
 Inventory.heldDurability = nil
 Inventory.dragging = false
+Inventory.selectedItemName = ""
+Inventory.hoveredItem = nil
 
 for i = 1, Inventory.maxSlots do
     Inventory.items[i] = nil
@@ -98,6 +100,8 @@ function Inventory:draw(itemTypes)
     local barW, barH = self.invBar:getWidth()*scale, self.invBar:getHeight()*scale
     local spacing = 8 * scale
     local startX, startY = 10*scale, lg.getHeight() - barH - 10*scale
+    local mx, my = love.mouse.getPosition()
+    self.hoveredItem = nil
 
     for i = 1, self.maxSlots do
         local x, y = startX + (i-1)*(barW+spacing), startY + self.slotYOffsets[i]*scale
@@ -122,6 +126,10 @@ function Inventory:draw(itemTypes)
                 lg.setColor(1,1,1,1)
             end
         end
+
+        if mx >= x and mx <= x + barW and my >= y and my <= y + barH and slot then
+            self.hoveredItem = slot.type
+        end
     end
 
     if self.heldItem then
@@ -131,13 +139,27 @@ function Inventory:draw(itemTypes)
         lg.draw(img, mx-16*scale, my-16*scale, 0, scale, scale)
         utils.drawTextWithBorder(self.heldCount, mx+12*scale, my+12*scale)
     end
+
+    if self.hoveredItem and itemTypes[self.hoveredItem].img then
+        lg.setColor(0,0,0,0.7)
+        local name = string.gsub(self.hoveredItem, "_", " ")
+        local w = lg.getFont():getWidth(name) + 10
+        local h = lg.getFont():getHeight() + 6
+        lg.rectangle("fill", mx + 8, my - h - 8, w, h)
+        lg.setColor(1,1,1,1)
+        utils.drawTextWithBorder(name, mx + 12, my - h - 4)
+    end
 end
 
-function Inventory:selectSlot(newSlot)
+function Inventory:selectSlot(newSlot, itemTypes)
     if newSlot ~= self.selectedSlot and newSlot >= 1 and newSlot <= self.maxSlots then
         self.slotTimers[self.selectedSlot], self.slotTimers[newSlot] = 0, 0
         self.slotTargets[self.selectedSlot], self.slotTargets[newSlot] = 0, -10
         self.selectedSlot = newSlot
+        local slot = self.items[newSlot]
+        if slot and itemTypes[slot.type] then
+            self.selectedItemName = itemTypes[slot.type].name or slot.type
+        end
     end
 end
 
@@ -153,10 +175,10 @@ function Inventory:hasFreeSlot()
     return false
 end
 
-function Inventory:keypressed(key)
+function Inventory:keypressed(key, itemTypes)
     local n = tonumber(key)
     if n and n >= 1 and n <= self.maxSlots then
-        self:selectSlot(n)
+        self:selectSlot(n, itemTypes)
     end
 end
 
@@ -220,7 +242,6 @@ function Inventory:mousepressed(mx, my, button, itemTypes, crafting)
                         self.heldDurability = prevDurability]]
                     end
                 else
-                    local stackLimit = itemTypes[self.heldItem].stack or 64
                     if button == 1 then
                         self.items[i] = { type = self.heldItem, count = self.heldCount, durability = self.heldDurability }
                         self.heldItem = nil

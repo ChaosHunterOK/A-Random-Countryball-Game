@@ -4,7 +4,7 @@ local lib3d = {}
 
 function lib3d.vec3Normalize(x, y, z)
     local len = math.sqrt(x*x + y*y + z*z)
-    if len == 0 then return x, y, z end
+    if len < 0.00001 then return 0, 0, 0 end
     return x/len, y/len, z/len
 end
 
@@ -58,45 +58,38 @@ function lib3d.getRightVector(yaw)
     local sy = math.sin(yaw)
     return cy, 0, -sy
 end
-
-local matrixCache = {}
 local cacheKey = ""
+local matrixCache = { matrix = {}, lastParams = {} }
 
-function lib3d.getMVPMatrix(x, y, z, yaw, pitch, fov, aspect, znear, zfar)
-    local key = string.format("%.2f_%.2f_%.2f_%.4f_%.4f", x, y, z, yaw, pitch)
-    if matrixCache.lastKey == key then
+function lib3d.getMVPMatrix(camX, camY, camZ, yaw, pitch, fov, aspect, znear, zfar)
+    local p = matrixCache.lastParams
+    if p[1] == camX and p[2] == camY and p[3] == camZ and p[4] == yaw and p[5] == pitch and p[6] == fov then
         return matrixCache.matrix
     end
-    
-    local cy, sy = math.cos(yaw), math.sin(yaw)
-    local cp, sp = math.cos(pitch), math.sin(pitch)
-
-    local v11, v12, v13 = cy, sp * sy, cp * sy
-    local v21, v22, v23 = 0, cp, -sp
-    local v31, v32, v33 = -sy, sp * cy, cp * cy
-
-    local tx = -(x * v11 + y * v21 + z * v31)
-    local ty = -(x * v12 + y * v22 + z * v32)
-    local tz = -(x * v13 + y * v23 + z * v33)
-
-    local f = 1 / math.tan(fov * 0.5)
-    local invRange = 1 / (znear - zfar)
-    local a = f / aspect
-    local b = f
-    local c = (zfar + znear) * invRange
-    local d = (2 * zfar * znear) * invRange
-
-    local matrix = {
-        a * v11, a * v12, a * v13, 0,
-        b * v21, b * v22, b * v23, 0,
-        c * v11 - v31, c * v12 - v32, c * v13 - v33, -1,
-        d * v11 - tx,  d * v12 - ty,  d * v13 - tz, 0
+    local cosY, sinY = math.cos(yaw), math.sin(yaw)
+    local cosP, sinP = math.cos(pitch), math.sin(pitch)
+    local right = { cosY, 0, -sinY }
+    local up = { sinY * sinP, cosP, cosY * sinP }
+    local fwd = { sinY * cosP, -sinP, cosP * cosY }
+    local tanHalfFov = math.tan(fov * 0.5)
+    local m00 = 1 / (aspect * tanHalfFov)
+    local m11 = 1 / tanHalfFov
+    local m22 = -(zfar + znear) / (zfar - znear)
+    local m23 = -1
+    local m32 = -(2 * zfar * znear) / (zfar - znear)
+    local m = {
+        m00 * right[1], m11 * up[1], m22 * fwd[1] + m32 * 0, fwd[1],
+        m00 * right[2], m11 * up[2], m22 * fwd[2] + m32 * 0, fwd[2],
+        m00 * right[3], m11 * up[3], m22 * fwd[3] + m32 * 0, fwd[3],
+        -lib3d.vec3Dot(right[1], right[2], right[3], camX, camY, camZ) * m00,
+        -lib3d.vec3Dot(up[1], up[2], up[3], camX, camY, camZ) * m11,
+        -lib3d.vec3Dot(fwd[1], fwd[2], fwd[3], camX, camY, camZ) * m22 + m32,
+        -lib3d.vec3Dot(fwd[1], fwd[2], fwd[3], camX, camY, camZ)
     }
-    
-    matrixCache.matrix = matrix
-    matrixCache.lastKey = key
-    
-    return matrix
+
+    matrixCache.matrix = m
+    matrixCache.lastParams = {camX, camY, camZ, yaw, pitch, fov}
+    return m
 end
 
 function lib3d.clearMatrixCache()
@@ -230,22 +223,15 @@ function lib3d.trilinearInterpolate(v000, v100, v010, v110, v001, v101, v011, v1
 end
 
 local spatialHash = {}
-
 function lib3d.setSpatialHash(items, hashSize)
     spatialHash = {}
     hashSize = hashSize or 16
     for i = 1, #items do
         local item = items[i]
-        local hx = math.floor(item.x / hashSize)
-        local hz = math.floor(item.z / hashSize)
-        local key = hx * 40000 + hz
-        
-        local cell = spatialHash[key]
-        if not cell then
-            cell = {}
-            spatialHash[key] = cell
-        end
-        cell[#cell + 1] = item
+        local hx, hz = math.floor(item.x / hashSize), math.floor(item.z / hashSize)
+        local key = hx .. "_" .. hz
+        if not spatialHash[key] then spatialHash[key] = {} end
+        table.insert(spatialHash[key], item)
     end
 end
 
@@ -276,6 +262,27 @@ end
 
 function lib3d.clearSpatialHash()
     spatialHash = {}
+end
+
+function lib3d.worldToScreen(x, y, z, mvp, screenW, screenH)
+    local cx = x * mvp[1] + y * mvp[5] + z * mvp[9] + mvp[13]
+    local cy = x * mvp[2] + y * mvp[6] + z * mvp[10] + mvp[14]
+    local cz = x * mvp[3] + y * mvp[7] + z * mvp[11] + mvp[15]
+    local cw = x * mvp[4] + y * mvp[8] + z * mvp[12] + mvp[16]
+
+    if cw < 0.1 then return nil end
+    local ndcX = cx / cw
+    local ndcY = cy / cw
+    local screenX = (ndcX + 1) * 0.5 * screenW
+    local screenY = (1 - ndcY) * 0.5 * screenH
+
+    return screenX, screenY, cw
+end
+
+function lib3d.sortFacesByDepth(faces)
+    table.sort(faces, function(a, b)
+        return a.depth > b.depth
+    end)
 end
 
 return lib3d
