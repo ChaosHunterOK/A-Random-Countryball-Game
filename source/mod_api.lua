@@ -22,6 +22,7 @@ ModAPI.hooks = {
 ModAPI.utils = require("source.utils")
 ModAPI.lib3d = require("source.projectile.lib3d")
 ModAPI.json = require("source.dkjson")
+ModAPI.transition = require("source.transition")
 
 ModAPI.loadedMods = {}
 ModAPI.needsWorldReset = false
@@ -202,6 +203,7 @@ function ModAPI.loadMod(modPath)
         utils = ModAPI.utils,
         lib3d = ModAPI.lib3d,
         json = ModAPI.json,
+        transition = ModAPI.transition
     }, { __index = _G })
 
     if setfenv then

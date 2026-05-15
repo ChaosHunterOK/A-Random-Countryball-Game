@@ -88,6 +88,11 @@ function utils.randomRange(a, b)
 end
 
 function utils.drawSharpText(text, x, y, limit, align)
+    text = tostring(text or "")
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
+    limit = tonumber(limit) or love.graphics.getWidth()
+    align = align or "left"
     love.graphics.setShader(sharpTextShader)
     love.graphics.printf(text, x, y, limit, align)
     love.graphics.setShader()
@@ -95,6 +100,9 @@ end
 
 function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textColor)
     local lg = love.graphics
+    text = tostring(text or "")
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
     limit = tonumber(limit) or lg.getWidth()
     align = align or "left"
     borderColor = borderColor or {0, 0, 0, 1}

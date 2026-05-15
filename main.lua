@@ -42,6 +42,7 @@ local skyBox = require(proj.."skybox")
 local nightCycle = require(proj.."night_cycle")
 local Audio = require(src.."audio")
 local Console = require(src.."console")
+local Transition = require("source.transition")
 
 local visible_idk = {cursor = true, skyBox = false}
 local clamp, perlin = utils.clamp, utils.fastPerlin
@@ -938,6 +939,7 @@ end
 function love.update(dt)
     local mx, my = love.mouse.getPosition()
     love.timer.sleep(0.001)
+    Transition.update(dt)
     Cursor.update(dt)
     if ModAPI.applyChanges() then
         print("Mods changed, regenerating world...")
@@ -1316,7 +1318,10 @@ function love.draw()
     elseif gamestate == "skins" then
         drawTiles()
         SkinsMenu:draw()
+    elseif gamestate == "credits" then
+        drawTiles()
     end
+    Transition.draw(base_width, base_height)
     utils.drawTextWithBorder("FPS: "..love.timer.getFPS(), 10, 5)
     Console:draw()
     if visible_idk.cursor then
@@ -1429,15 +1434,25 @@ function love.keypressed(key)
 
             if selected == "Play" then
                 refreshWorldList()
-                gamestate = "worldselect"
+                Transition.startFade(0.5, function()
+                    gamestate = "worldselect"
+                end)
             elseif selected == "Mods" then
-                gamestate = "mods"
+                Transition.startFade(0.5, function()
+                    gamestate = "mods"
+                end)
             elseif selected == "Skins" then
-                gamestate = "skins"
+                Transition.startFade(0.5, function()
+                    gamestate = "skins"
+                end)
             elseif selected == "Options" then
-                gamestate = "options"
+                Transition.startFade(0.5, function()
+                    gamestate = "options"
+                end)
             elseif selected == "Credits" then
-                gamestate = "credits"
+                Transition.startFade(0.5, function()
+                    gamestate = "credits"
+                end)
             elseif selected == "Quit" then
                 love.event.quit()
             end
@@ -1456,7 +1471,9 @@ function love.keypressed(key)
         elseif key == "return" then
             if worldList[selectedWorldIndex] then loadWorld(worldList[selectedWorldIndex]) end
         elseif key == "escape" then
-            gamestate = "menu"
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
         end
     elseif gamestate == "game" then
         if key == "escape" and Knapping.open then
@@ -1494,7 +1511,9 @@ function love.keypressed(key)
                 elseif choice == "Leave" then
                     pauseOpen = false
                     love.mouse.setVisible(false)
-                    gamestate = "menu"
+                    Transition.startFade(0.5, function()
+                        gamestate = "menu"
+                    end)
                 end
             elseif key == "escape" then
                 pauseOpen = not pauseOpen
@@ -1527,15 +1546,26 @@ function love.keypressed(key)
         end
     elseif gamestate == "skins" then
         SkinsMenu:keypressed(key)
-        if key == "escape" then gamestate = "menu" end
+        if key == "escape" then
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
+        end
     elseif gamestate == "credits" then
-        if key == "escape" then gamestate = "menu" end
+        if key == "escape" then
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
+        end
     elseif gamestate == "mods" then
         ModsMenu:keypressed(key)
         ModAPI.reset()
-        if key == "escape" then gamestate = "menu" end
+        if key == "escape" then
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
+        end
     end
-
     if key == "f1" then
         Console:toggle()
         return
