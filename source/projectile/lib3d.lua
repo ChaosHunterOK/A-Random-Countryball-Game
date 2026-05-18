@@ -265,14 +265,17 @@ function lib3d.clearSpatialHash()
 end
 
 function lib3d.worldToScreen(x, y, z, mvp, screenW, screenH)
-    local cx = x * mvp[1] + y * mvp[5] + z * mvp[9] + mvp[13]
+    local cx = x * mvp[1] + y * mvp[5] + z * mvp[9]  + mvp[13]
     local cy = x * mvp[2] + y * mvp[6] + z * mvp[10] + mvp[14]
     local cz = x * mvp[3] + y * mvp[7] + z * mvp[11] + mvp[15]
     local cw = x * mvp[4] + y * mvp[8] + z * mvp[12] + mvp[16]
+    if cw <= 0.001 then
+        return nil
+    end
 
-    if cw < 0.1 then return nil end
     local ndcX = cx / cw
     local ndcY = cy / cw
+
     local screenX = (ndcX + 1) * 0.5 * screenW
     local screenY = (1 - ndcY) * 0.5 * screenH
 

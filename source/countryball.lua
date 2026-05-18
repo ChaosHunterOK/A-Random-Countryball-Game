@@ -32,6 +32,9 @@ local countryball = {
     shakeStrength = 0.25,
     hungerExhaustion = 0,
     hungerDecayRate = 0.05,
+    currentAge = "stone_age",
+    potteryItemsCrafted = 0,
+    copperSmelted = 0,
 }
 
 function countryball:takeDamage(amount, dirX, dirZ)

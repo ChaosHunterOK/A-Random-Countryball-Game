@@ -69,6 +69,28 @@ local itemDefinitions = {
     iron_pickaxe = item("pickaxe_type/iron.png", 2, false, {durability = 60, toolType = "pickaxe", material = "iron"}),
 
     ruby_pickaxe = item("pickaxe_type/iron.png", 2, false, {durability = 60, toolType = "pickaxe", material = "ruby"}),
+
+    clay_bowl = item("pottery/bowl.png", 4, false, {material = "ceramic"}),
+    clay_pot = item("pottery/pot.png", 2, false, {material = "ceramic"}),
+    clay_brick = item("pottery/brick.png", 50, false, {material = "ceramic"}),
+    clay_furnace_brick = item("pottery/furnace_brick.png", 20, false, {material = "ceramic"}),
+    clay_plate = item("pottery/plate.png", 10, false, {material = "ceramic"}),
+    clay_cup = item("pottery/cup.png", 8, true, {material = "ceramic"}),
+    clay_jar = item("pottery/jar.png", 2, false, {material = "ceramic"}),
+
+    copper_ore = item("copper.png", 20),
+    copper_ingot = item("copper_ingot.png", 20, false, {material = "copper"}),
+    copper_shovel_head = item("heads/copper/shovel.png", 5),
+    copper_hoe_head = item("heads/copper/hoe.png", 5),
+    copper_hammer_head = item("heads/copper/hammer.png", 5),
+    copper_pick_head = item("heads/copper/pick.png", 5),
+    copper_knife_head = item("heads/copper/knife.png", 5),
+    
+    copper_shovel = item("shovel_type/copper.png", 2, false, {durability = 75, toolType = "shovel", material = "copper"}),
+    copper_hoe = item("hoe_type/copper.png", 2, false, {durability = 75, toolType = "hoe", material = "copper"}),
+    copper_knife = item("knife_type/copper.png", 2, false, {durability = 75, toolType = "knife", material = "copper"}),
+    copper_hammer = item("hammer_type/copper.png", 2, false, {durability = 75, toolType = "hammer", material = "copper"}),
+    copper_pickaxe = item("pickaxe_type/copper.png", 2, false, {durability = 75, toolType = "pickaxe", material = "copper"}),
 }
 
 local items = {}
@@ -96,6 +118,8 @@ local materialMultiplier = {
     pumice = 1.05,
     iron = 1.3,
     ruby = 1.5,
+    copper = 1.4,
+    ceramic = 0.5,
     stick = 0.2,
     wood = 0.8,
 }

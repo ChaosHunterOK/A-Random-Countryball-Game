@@ -41,6 +41,26 @@ recipe.recipes = {
         input = {"apple", nil, nil, nil},
         output = {type = "apple_seed", count = 4}
     },
+    {
+        input = {"copper_shovel_head", nil, "stick", nil},
+        output = {type = "copper_shovel", count = 1}
+    },
+    {
+        input = {"copper_hoe_head", nil, "stick", nil},
+        output = {type = "copper_hoe", count = 1}
+    },
+    {
+        input = {"copper_hammer_head", nil, "stick", nil},
+        output = {type = "copper_hammer", count = 1}
+    },
+    {
+        input = {"copper_pick_head", nil, "stick", nil},
+        output = {type = "copper_pickaxe", count = 1}
+    },
+    {
+        input = {"copper_knife_head", nil, "stick", nil},
+        output = {type = "copper_knife", count = 1}
+    },
 }
 
 return recipe

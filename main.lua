@@ -25,6 +25,8 @@ local ItemsModule = require(src.."items")
 local Inventory = require(hud.."inv")
 local Crafting = require(hud.."craft")
 local Knapping = require(hud.."knap")
+local Pottery = require(hud.."pottery")
+local Progression = require(src.."progression")
 local verts = require(proj.."verts")
 local Props = require(src.."props")
 local utils = require(src.."utils")
@@ -195,7 +197,6 @@ local biomeToTexture = {
 local C_SCALE = 0.04
 local C_BIOME_SCALE = 0.03
 local C_VOLCANO_NOISE_SCALE = 0.04
-local C_RIVER_FACTOR = 0.15
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
 
@@ -726,6 +727,11 @@ function love.mousepressed(mx, my, button)
             return
         end
 
+        if Pottery.open then
+            Pottery:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+            return
+        end
+
         if button == 1 and slot and slot.type == "stone" and slot.count >= 2 and not isCursorOverInteractive(mx, my) and not Crafting.open then
             if not Knapping.open then
                 slot.count = slot.count - 1
@@ -1057,6 +1063,7 @@ function love.update(dt)
             end
             Inventory:update(dt)
             Crafting:update(dt)
+            Pottery:update(dt)
             Props.updateProps(dt)
             Particles.updateSmoke(dt)
             autosaveTimer = autosaveTimer + dt
@@ -1194,7 +1201,8 @@ function mainGame()
     hungerBar:draw()
     Crafting:draw(Inventory, itemTypes, items)
     Knapping:draw(Inventory, itemTypes)
-    if not Knapping.open then
+    Pottery:draw(Inventory, itemTypes)
+    if not Knapping.open and not Pottery.open then
         Inventory:draw(itemTypes)
     end
 
@@ -1524,6 +1532,7 @@ function love.keypressed(key)
             return
         end
         if key == "e" and not Knapping.open then Crafting:toggle() end
+        if key == "p" and not Knapping.open and not Crafting.open then Pottery:toggle() end
         Inventory:keypressed(key, itemTypes)
 
         if key == "q" then healthBar:damageHealth(1) end
