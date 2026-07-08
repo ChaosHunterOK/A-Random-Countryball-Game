@@ -82,8 +82,30 @@ function ModAPI.declareMod(id, metadata)
         id = id,
         version = metadata.version or "1.0.0",
         dependencies = ensureTable(metadata.dependencies),
-        enabled = true
+        enabled = true,
+        standalone = metadata.standalone or false
     }
+end
+
+function ModAPI.hasStandaloneConflict(modId)
+    local current = ModAPI.loadedMods[modId]
+    if not current then
+        return false
+    end
+
+    if not current.standalone then
+        return false
+    end
+
+    local count = 0
+
+    for _, mod in pairs(ModAPI.loadedMods) do
+        if mod.enabled then
+            count = count + 1
+        end
+    end
+
+    return count > 1
 end
 
 function ModAPI.registerMaterial(id, def)
@@ -237,6 +259,30 @@ function ModAPI.loadMod(modPath)
     ModAPI.loadedMods[id] = ModAPI.loadedMods[id] or { id = id }
 
     log("loaded:", modName)
+
+    local loadedCount = 0
+    local standaloneMod = nil
+
+    for _, mod in pairs(ModAPI.loadedMods) do
+        if mod.enabled then
+            loadedCount = loadedCount + 1
+
+            if mod.standalone then
+                standaloneMod = mod
+            end
+        end
+    end
+
+    if standaloneMod and loadedCount > 1 then
+        warn(
+            "standalone mod '" ..
+            standaloneMod.id ..
+            "' cannot be loaded with other mods"
+        )
+
+        standaloneMod.enabled = false
+        return
+    end
 end
 
 function ModAPI.applyChanges()

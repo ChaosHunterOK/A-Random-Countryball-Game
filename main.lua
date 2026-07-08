@@ -19,6 +19,7 @@ local imgF = "image/"
 local lastMouseX, lastMouseY = love.mouse.getPosition()
 
 local camera = require(proj.."camera")
+local lib3d = require(proj.."lib3d")
 local countryball = require(src.."countryball")
 local mobs = require(src.."mobs")
 local ItemsModule = require(src.."items")
@@ -34,6 +35,7 @@ local Collision = require(src.."collision")
 local OptMenu = require(menu.."options")
 local SkinsMenu = require(menu.."skins")
 local ModsMenu = require(menu.."mods")
+local CreditsMenu = require(menu.."credits")
 local ModAPI = require(src.."mod_api")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
@@ -79,6 +81,7 @@ local autosaveInterval = 30
 local autosaveTimer = 0
 
 local titleImage = lg.newImage(imgF.."menu/title.png")
+local pauseImage = lg.newImage(imgF.."pause.png")
 
 materials = {}
 
@@ -199,6 +202,15 @@ local C_BIOME_SCALE = 0.03
 local C_VOLCANO_NOISE_SCALE = 0.04
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
+local C_CONTINENTALNESS = 0.003
+local C_EROSION = 0.010
+local C_PEAKS = 0.015
+local C_RIVER = 0.004
+local C_LAKE = 0.020
+local C_VALLEY = 0.008
+local C_MOUNTAINS = 0.006
+local C_CLIFF = 0.03
+local C_PLATEAU = 0.005
 
 local function getFractalNoise(x, z, octaves, persistence, scale)
     local total = 0
@@ -252,6 +264,10 @@ function createBaseplate(width, depth, seed, formatType)
         for z = 0, depth do
             for x = 0, width do
                 local base = getFractalNoise(x, z, 3, 0.5, C_SCALE) * 8
+                local continentalness = getFractalNoise(x, z, 4, 0.55, C_CONTINENTALNESS)
+                local erosion = getFractalNoise(x+2000, z+2000, 4, 0.5, C_EROSION)
+                local peaks = getFractalNoise(x+4000, z+4000, 5, 0.45, C_PEAKS)
+                local valley = getFractalNoise(x+6000, z+6000, 3, 0.5, C_VALLEY)
                 local dx, dz = (x / width) - 0.5, (z / depth) - 0.5
                 local dist = math.sqrt(dx*dx + dz*dz) * 2
                 local mask = math.max(0, 1.2 - dist^1.5)
@@ -265,12 +281,29 @@ function createBaseplate(width, depth, seed, formatType)
                 end
                 local volcanoNoise = perlin(x * C_VOLCANO_H_NOISE, z * C_VOLCANO_H_NOISE)
                 if volcanoNoise > 0.95 then h = h + 6 + (volcanoNoise - 0.95) * 10 end
+                local lakeNoise = getFractalNoise(x+12000,z+12000,3,0.5,C_LAKE)
                 local caveMask = perlin(x * C_CAVE_MASK_NOISE, z * C_CAVE_MASK_NOISE)
                 if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
-                local riverNoise = perlin(x * 0.02, z * 0.02)
-                local riverPath = math.abs(riverNoise)
-                if riverPath < 0.04 then
-                    h = h - (4.0 * (1 - (riverPath / 0.04))) 
+                local river = abs(getFractalNoise(x+9000,z+9000,4,0.5,C_RIVER))
+                if river < 0.04 then
+                    h = h - (4.0 * (1 - (river / 0.04))) 
+                end
+                if lakeNoise > 0.68 and erosion > 0.65 and continentalness > 0.45 then
+                    h = min(h, 1.6)
+                end
+                local mountainNoise = getFractalNoise(x + 15000, z + 15000, 5, 0.5, C_MOUNTAINS)
+                if mountainNoise > 0.45 then
+                    local strength = ((mountainNoise - 0.45) / 0.55)^2
+                    h = h + strength * 18
+                end
+                local cliff = perlin(x * C_CLIFF + 900, z * C_CLIFF + 900)
+                if cliff > 0.7 then
+                    h = floor(h + 0.5)
+                end
+                local plateau = getFractalNoise(x+18000,z+18000,4,0.5,C_PLATEAU)
+                if plateau > 0.65 then
+                    h = max(h,10)
+                    h = floor(h)
                 end
                 local ctx = {x = x, z = z, height = h}
                 for _, layer in ipairs(ModAPI.terrainLayers) do layer(ctx) end
@@ -390,7 +423,10 @@ local function createNewWorld(name)
     Mapsave.saveInventory(Inventory, nm)
     
     Blocks.placed = {}
+    Props.clearProps()
+    Props.spawnProps(550, bw, bh, getTileAt)
     Mapsave.saveBlocks(Blocks.placed, nm)
+    Mapsave.saveProps(Props.props, nm)
     
     updateTileMeshes(true)
     gamestate = "game"
@@ -448,6 +484,20 @@ local function loadWorld(name)
             Inventory.heldItem = invData.heldItem
             Inventory.heldCount = invData.heldCount or 0
             Inventory.heldDurability = invData.heldDurability
+        end
+
+        local savedBlocks = Mapsave.loadBlocks(name)
+        Blocks.placed = savedBlocks or {}
+        for _, b in ipairs(Blocks.placed) do
+            b.texture = materials[b.type] or materials.stone
+        end
+
+        local savedProps = Mapsave.loadProps(name)
+        if savedProps then
+            Props.loadSavedProps(savedProps)
+        else
+            Props.clearProps()
+            Props.spawnProps(550, bw, bh, getTileAt)
         end
         
         updateTileMeshes(true)
@@ -942,9 +992,12 @@ for i = 1, #menuItems do
     }
 end
 
+local pauseVolume = 0
+local fadeSpeed = 2
 function love.update(dt)
     local mx, my = love.mouse.getPosition()
     love.timer.sleep(0.001)
+    --Audio.update(dt)
     Transition.update(dt)
     Cursor.update(dt)
     if ModAPI.applyChanges() then
@@ -957,6 +1010,9 @@ function love.update(dt)
     Console:installGlobalHooks()
     if visible_idk.cursor then love.mouse.setVisible(false) else love.mouse.setVisible(true) end
     SkinsMenu:update(dt)
+    if gamestate == "credits" then
+        CreditsMenu.update(dt)
+    end
     if gamestate == "menu" or gamestate == "options" or gamestate == "skins" or gamestate == "mods" then
         local dx = (mx / base_width - 0.5) * 6
         local dz = (my / base_height - 0.5) * 6
@@ -984,6 +1040,29 @@ function love.update(dt)
         end
 
         return
+    end
+    local pauseSource = Audio.getSource("pause")
+    local mainSource = Audio.getSource("main")
+    if pauseSource then
+        if pauseOpen then
+            if mainSource and mainSource:isPlaying() then
+                mainSource:stop()
+            end
+
+            if not pauseSource:isPlaying() then
+                pauseSource:setVolume(0)
+                pauseSource:play()
+            end
+
+            pauseVolume = math.min(pauseVolume + fadeSpeed * dt, 1)
+            pauseSource:setVolume(pauseVolume)
+        else
+            pauseVolume = 0
+
+            if pauseSource:isPlaying() then
+                pauseSource:stop()
+            end
+        end
     end
     if gamestate == "game" then
         nightCycle.update(dt)
@@ -1044,7 +1123,6 @@ function love.update(dt)
                 camera.z = camera.z + (cz - camera.z) * s
             end
             if countryball.y <= -10 then healthBar:setHealth(0) end
-            local mainSource = Audio.getSource("main")
             if mainSource and not mainSource:isPlaying() then mainSource:play() end
             healthBar:update(dt)
             hungerBar:update(dt)
@@ -1074,6 +1152,8 @@ function love.update(dt)
                 autosaveTimer = 0
             end
         end
+    else
+        if mainSource and mainSource:isPlaying() then mainSource:stop() end
     end
 end
 
@@ -1081,16 +1161,16 @@ function getTileUnderCursor(mx, my, maxDistance)
     maxDistance = maxDistance or 100
     local rdx, rdy, rdz = camera:getRay(mx, my, base_width, base_height)
 
-    local len = sqrt(rdx*rdx + rdy*rdy + rdz*rdz)
-    local rdx, rdy, rdz = rdx/len, rdy/len, rdz/len
-    rdx = -rdx
-    rdz = rdz * 0.5
-    
     local px, py, pz = camera.x, camera.y, camera.z
     local blocks = Blocks.placed
 
-    for t = 0, maxDistance, 0.02 do
+    local step = 0.05
+    local prevTile, prevDiff = nil, nil
+
+    local t = 0
+    while t <= maxDistance do
         local wx, wy, wz = px + rdx*t, py + rdy*t, pz + rdz*t
+
         for i = 1, #blocks do
             local block = blocks[i]
             if abs(wx - block.x) <= 0.5 and abs(wy - block.y) <= 0.5 and abs(wz - block.z) <= 0.5 then
@@ -1101,14 +1181,25 @@ function getTileUnderCursor(mx, my, maxDistance)
         local tile = getTileAt(wx, wz)
         if tile and not tile.isAir then
             local t1, t2, t3, t4 = tile[1], tile[2], tile[3], tile[4]
-            local avgY = (t1[2] + t2[2] + t3[2] + t4[2]) * 0.25
-            
-            if abs(wy - avgY) <= 0.15 then
-                local cx = (t1[1] + t2[1] + t3[1] + t4[1]) * 0.25
-                local cz = (t1[3] + t2[3] + t3[3] + t4[3]) * 0.25
-                return tile, cx, avgY, cz, "terrain"
+            local gridX, gridZ = floor(t1[1]), floor(t1[3])
+            local fx, fz = wx - gridX, wz - gridZ
+            local surfY = lib3d.bilinearInterpolate(t1[2], t2[2], t4[2], t3[2], fx, fz)
+            local diff = wy - surfY
+
+            if tile == prevTile and prevDiff and ((prevDiff >= 0 and diff <= 0) or (prevDiff <= 0 and diff >= 0)) then
+                local denom = prevDiff - diff
+                local frac = (denom ~= 0) and (prevDiff / denom) or 0
+                local hitT = t - step + step * frac
+                local hx, hy, hz = px + rdx*hitT, py + rdy*hitT, pz + rdz*hitT
+                return tile, hx, hy, hz, "terrain"
             end
+
+            prevTile, prevDiff = tile, diff
+        else
+            prevTile, prevDiff = nil, nil
         end
+
+        t = t + step
     end
 end
 skyBox.load()
@@ -1210,6 +1301,7 @@ function mainGame()
         local alpha = pauseProgress * 0.9
         lg.setColor(0, 0, 0, 0.5 * alpha)
         lg.rectangle("fill", 0, 0, base_width, base_height)
+        lg.draw(pauseImage, 675, 215)
         local centerX = base_width / 2
         local startY = base_height * 0.35
         local spacing = menuSpacing * 0.9
@@ -1328,6 +1420,7 @@ function love.draw()
         SkinsMenu:draw()
     elseif gamestate == "credits" then
         drawTiles()
+        CreditsMenu:draw()
     end
     Transition.draw(base_width, base_height)
     utils.drawTextWithBorder("FPS: "..love.timer.getFPS(), 10, 5)
@@ -1348,6 +1441,7 @@ function love.load()
         baseplateTiles = loaded
         tileGrid = loadedTileGrid
         mapSeed = meta.seed
+        currentWorldName = "default"
         if not baseplateTiles._tileChunks then
             local tileChunks = {}
             local chunkSize = chunkCfg.size or 4
@@ -1365,10 +1459,22 @@ function love.load()
             end
             baseplateTiles._tileChunks = tileChunks
         end
+        Blocks.placed = Mapsave.loadBlocks(currentWorldName) or {}
+        for _, b in ipairs(Blocks.placed) do
+            b.texture = materials[b.type] or materials.stone
+        end
+        local savedProps = Mapsave.loadProps(currentWorldName)
+        if savedProps then
+            Props.loadSavedProps(savedProps)
+        else
+            Props.clearProps()
+            Props.spawnProps(550, bw, bh, getTileAt)
+        end
     else
         createBaseplate(bw,bh)
+        Props.clearProps()
+        Props.spawnProps(550, bw, bh, getTileAt)
     end
-    Props.spawnProps(200, bw, bh, getTileAt)
     mobs.spawn("racoon_dog", 14, 14, getTileAt)
     Cursor.load()
     font = lg.newFont("font/font.ttf", 26)
@@ -1539,6 +1645,8 @@ function love.keypressed(key)
 
         if key == "f5" then
             Mapsave.save(baseplateTiles, materials, currentWorldName, {seed = mapSeed})
+            Mapsave.saveBlocks(Blocks.placed, currentWorldName)
+            Mapsave.saveProps(Props.props, currentWorldName)
         end
 
         if key == "escape" then
@@ -1562,6 +1670,7 @@ function love.keypressed(key)
         end
     elseif gamestate == "credits" then
         if key == "escape" then
+            CreditsMenu.toggle(false)
             Transition.startFade(0.5, function()
                 gamestate = "menu"
             end)

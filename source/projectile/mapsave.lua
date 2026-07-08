@@ -38,7 +38,9 @@ local function buildMaterialLookup(materials)
 end
 
 function Mapsave.save(baseplateTiles, materials, worldName, extra)
-    if not baseplateTiles or #baseplateTiles == 0 then return end
+    if not baseplateTiles or next(baseplateTiles) == nil then
+        return false
+    end
     
     local texLookup = buildMaterialLookup(materials)
     local out = {}
@@ -61,14 +63,14 @@ function Mapsave.save(baseplateTiles, materials, worldName, extra)
                 subsurface = tile.subsurface,
                 biome = tile.biome,
                 containsCave = tile.containsCave, isVolcano = tile.isVolcano, chunkX = tile.chunkX, chunkZ = tile.chunkZ,
-                texture = texLookup[tile.texture] or tile.textureName or "default"
+                textureName = texLookup[tile.texture] or tile.textureName or "default"
             }
         end
     end
 
     local data = {
         tiles = out,
-        meta = extra or {} -- ✅ store seed etc
+        meta = extra or {}
     }
 
     saveJSON(getFilePath(worldName, "mapsave.json"), data)
@@ -91,6 +93,12 @@ function Mapsave.load(materials, baseplateTiles, worldName)
         if v and v[1] and v[2] and v[3] and v[4] then
             local v1, v2, v3, v4 = v[1], v[2], v[3], v[4]
 
+            local textureName = t.texture
+            local resolvedTexture = defMat
+            if materials and textureName then
+                resolvedTexture = materials[textureName] or defMat
+            end
+
             local tile = {
                 {v1[1], v1[2], v1[3]},
                 {v2[1], v2[2], v2[3]},
@@ -110,8 +118,8 @@ function Mapsave.load(materials, baseplateTiles, worldName)
                 isVolcano = t.isVolcano,
                 chunkX = t.chunkX,
                 chunkZ = t.chunkZ,
-                textureName = t.texture,
-                texture = (materials and materials[t.texture]) or defMat
+                textureName = textureName,
+                texture = resolvedTexture
             }
 
             tile.collision = {
@@ -127,7 +135,7 @@ function Mapsave.load(materials, baseplateTiles, worldName)
         end
     end
 
-    return loadedTiles, tileGrid, meta -- ✅ return meta
+    return loadedTiles, tileGrid, meta
 end
 
 function Mapsave.saveCountryball(state, worldName)
@@ -166,7 +174,9 @@ function Mapsave.loadInventory(worldName)
 end
 
 function Mapsave.saveBlocks(blocks, worldName)
-    if not blocks or #blocks == 0 then return end
+    if not blocks or next(blocks) == nil then
+        return false
+    end
     local data = {}
     for i = 1, #blocks do
         local b = blocks[i]
@@ -177,6 +187,32 @@ end
 
 function Mapsave.loadBlocks(worldName)
     return loadJSON(getFilePath(worldName, "blocks.json"))
+end
+
+function Mapsave.saveProps(props, worldName)
+    if not props or type(props) ~= "table" then
+        return false
+    end
+
+    local data = {}
+    for i = 1, #props do
+        local p = props[i]
+        data[i] = {
+            type = p.type,
+            typeIndex = p.typeIndex,
+            x = p.x, y = p.y, z = p.z,
+            health = p.health, maxHealth = p.maxHealth,
+            shakeTimer = p.shakeTimer, shakeOffsetX = p.shakeOffsetX, shakeOffsetY = p.shakeOffsetY,
+            length = p.length, stage = p.stage, growTimer = p.growTimer,
+            isCut = p.isCut
+        }
+    end
+
+    return saveJSON(getFilePath(worldName, "props.json"), data)
+end
+
+function Mapsave.loadProps(worldName)
+    return loadJSON(getFilePath(worldName, "props.json"))
 end
 
 return Mapsave

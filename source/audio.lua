@@ -4,31 +4,25 @@ local Audio = {}
 
 Audio.songs = {
     main = "music/music.mp3",
-    menu = "music/menu.mp3"
+    menu = "music/menu.mp3",
+    pause = "music/taketwo_3.mp3",
+    credits = "music/takethree.mp3"
 }
-
 Audio.sources = {}
 
 function Audio.load()
     for name, path in pairs(Audio.songs) do
-        Audio.sources[name] = love.audio.newSource(path, "stream")
-        Audio.sources[name]:setLooping(true)
-    end
-end
-
-function Audio.switchSong(name)
-    for _, source in pairs(Audio.sources) do
-        source:stop()
-    end
-    if Audio.sources[name] then
-        Audio.sources[name]:setLooping(true)
-        Audio.sources[name]:play()
+        local source = love.audio.newSource(path, "stream")
+        source:setLooping(true)
+        source:setVolume(1)
+        Audio.sources[name] = source
     end
 end
 
 function Audio.stopAll()
     for _, source in pairs(Audio.sources) do
         source:stop()
+        source:setVolume(1)
     end
 end
 

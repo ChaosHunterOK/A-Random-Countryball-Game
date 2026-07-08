@@ -17,12 +17,16 @@ Inventory.heldDurability = nil
 Inventory.dragging = false
 Inventory.selectedItemName = ""
 Inventory.hoveredItem = nil
+Inventory.slotAlpha = {}
+Inventory.slotAlphaTarget = {}
 
 for i = 1, Inventory.maxSlots do
     Inventory.items[i] = nil
     Inventory.slotYOffsets[i] = 0
     Inventory.slotTargets[i] = 0
     Inventory.slotTimers[i] = 0
+    Inventory.slotAlpha[i] = (i == 1) and 1 or 0.7
+    Inventory.slotAlphaTarget[i] = Inventory.slotAlpha[i]
 end
 
 local function easeInOutBack(t)
@@ -76,6 +80,9 @@ function Inventory:update(dt)
         local target = self.slotTargets[i]
         local current = self.slotYOffsets[i]
 
+        local alphaSpeed = 10
+        self.slotAlpha[i] = self.slotAlpha[i] + (self.slotAlphaTarget[i] - self.slotAlpha[i]) * math.min(alphaSpeed * dt, 1)
+
         if math.abs(current - target) > 0.1 then
             local t = math.min(self.slotTimers[i] + dt, self.animDuration) / self.animDuration
             self.slotTimers[i] = self.slotTimers[i] + dt
@@ -105,8 +112,9 @@ function Inventory:draw(itemTypes)
 
     for i = 1, self.maxSlots do
         local x, y = startX + (i-1)*(barW+spacing), startY + self.slotYOffsets[i]*scale
-        lg.setColor(1,1,1,1)
+        lg.setColor(self.slotAlpha[i],self.slotAlpha[i],self.slotAlpha[i],1)
         lg.draw(self.invBar, x, y, 0, scale, scale)
+        lg.setColor(1,1,1,1)
 
         local slot = self.items[i]
         if slot and slot.count > 0 then
@@ -156,6 +164,9 @@ function Inventory:selectSlot(newSlot, itemTypes)
         self.slotTimers[self.selectedSlot], self.slotTimers[newSlot] = 0, 0
         self.slotTargets[self.selectedSlot], self.slotTargets[newSlot] = 0, -10
         self.selectedSlot = newSlot
+        for i = 1, self.maxSlots do
+            self.slotAlphaTarget[i] = (i == newSlot) and 1 or 0.7
+        end
         local slot = self.items[newSlot]
         if slot and itemTypes[slot.type] then
             self.selectedItemName = itemTypes[slot.type].name or slot.type

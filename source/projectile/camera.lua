@@ -97,16 +97,19 @@ function camera:getRay(mx, my, w, h)
     local ny = (0.5 - my / h) * 2
     local aspect = self.aspect
     local tanFOV = self.fovHalfTan
-    local f = self:getForward()
-    local r = self:getRight()
-    local upX = r.y * f.z - r.z * f.y
-    local upY = r.z * f.x - r.x * f.z
-    local upZ = r.x * f.y - r.y * f.x
-    local rx = f.x + r.x * nx * aspect * tanFOV + upX * ny * tanFOV
-    local ry = f.y + r.y * nx * aspect * tanFOV + upY * ny * tanFOV
-    local rz = f.z + r.z * nx * aspect * tanFOV + upZ * ny * tanFOV
-    local mag = math.sqrt(rx*rx + ry*ry + rz*rz)
-    return rx / mag, ry / mag, rz / mag
+    local x1 = nx * aspect * tanFOV
+    local y1 = ny * tanFOV
+    local z2 = 1
+    local cy, sy = cos(self.yaw), sin(self.yaw)
+    local cp, sp = cos(self.pitch), sin(self.pitch)
+
+    local dy = y1 * cp + z2 * sp
+    local z1 = -y1 * sp + z2 * cp
+    local dx = x1 * cy + z1 * sy
+    local dz = -x1 * sy + z1 * cy
+
+    local mag = math.sqrt(dx*dx + dy*dy + dz*dz)
+    return dx / mag, dy / mag, dz / mag
 end
 
 function camera:getMVPMatrix()
