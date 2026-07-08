@@ -56,7 +56,8 @@ for i = 1, MAX_QUADS do
         dist = 0,
         hC = 0,
         gridX = 0,
-        gridZ = 0
+        gridZ = 0,
+        alpha = 1.0
     }
 end
 
@@ -220,6 +221,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
             local b_arr = entry.brightness
             b_arr[1], b_arr[2], b_arr[3] = tr, tg, tb
             entry.isWater = isWater
+            entry.alpha = isWater and 0.55 or 1.0
         end
         do
             local gridX, gridZ = floor(t1[1]), floor(t1[3])
@@ -308,11 +310,12 @@ function Verts.ensureAllMeshes(visibleTiles, fallback)
         local v, uv, br = t.verts, t.uvOffset, t.brightness
         local vr = t.vRepeat or 1
 
+        local alpha = t.alpha or 1.0
         mesh:setVertices({
-            {v[0], v[1],   uv.u,     uv.v,      br[1], br[2], br[3], 1},
-            {v[3], v[4],   uv.u + 1, uv.v,      br[1], br[2], br[3], 1},
-            {v[6], v[7],   uv.u + 1, uv.v + vr, br[1], br[2], br[3], 1},
-            {v[9], v[10],  uv.u,     uv.v + vr, br[1], br[2], br[3], 1},
+            {v[0], v[1],   uv.u,     uv.v,      br[1], br[2], br[3], alpha},
+            {v[3], v[4],   uv.u + 1, uv.v,      br[1], br[2], br[3], alpha},
+            {v[6], v[7],   uv.u + 1, uv.v + vr, br[1], br[2], br[3], alpha},
+            {v[9], v[10],  uv.u,     uv.v + vr, br[1], br[2], br[3], alpha},
         })
         local tex = t.texture or fallback
         if tex then

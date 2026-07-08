@@ -90,6 +90,7 @@ function initializeMaterials()
         grassNormal = imgF.."grass_type/normal.png",
         grassHot = imgF.."grass_type/hot.png",
         grassCold= imgF.."grass_type/cold.png",
+        grassRainforest= imgF.."grass_type/rainforest.png",
         sandNormal = imgF.."sand_type/normal.png",
         sandGarnet= imgF.."sand_type/garnet.png",
         sandGypsum = imgF.."sand_type/gypsum.png",
@@ -168,10 +169,22 @@ function determineBiome(h, t, h2, volc, x, z)
     if h > 6.0 and h2 < 0.2 then return "Canyon" end
 
     if h < 7.0 then
-        if t < -0.15 then return "Tundra" end
-        if t > 0.35 then return "Savanna" end
-        if h2 > 0.65 then return "Forest" end
-        if h2 > 0.35 then return "Grassland" end
+        if t < -0.2 then
+            return "Tundra"
+        end
+        if t > 0.45 and h2 > 0.55 then
+            return "Rainforest"
+        end
+        if t > 0.25 and h2 < 0.45 then
+            return "Savanna"
+        end
+        if h2 > 0.60 then
+            return "Forest"
+        end
+        if h2 > 0.35 then
+            return "Grassland"
+        end
+
         return "Plains"
     end
 
@@ -193,12 +206,13 @@ local biomeToTexture = {
     Forest = "grassNormal",
     Savanna = "grassHot",
     Tundra = "grassCold",
+    Rainforest = "grassRainforest",
     Highlands = "stone",
     SnowPeak = "snow",
-    Volcanic = "pumice"
+    Volcanic = "pumice",
 }
 local C_SCALE = 0.04
-local C_BIOME_SCALE = 0.03
+local C_BIOME_SCALE = 0.012
 local C_VOLCANO_NOISE_SCALE = 0.04
 local C_VOLCANO_H_NOISE = 0.05
 local C_CAVE_MASK_NOISE = 0.09
@@ -550,26 +564,34 @@ function updateTileMeshes(force)
 end
 
 local baseScale = 3
-local function drawWithStencil(objX, objY, objZ, img, flip, rotation, alpha, yOffset)
+local function drawWithStencil(objX, objY, objZ, img, flip, scaleX, scaleY, rotation, alpha, yOffset)
     if not img then return end
+
     local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
     if (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2 > chunkCfg.radius^2 then
         return
     end
-    
+
     local sx, sy, z = camera:project3D(objX, objY + (yOffset or -0.04), objZ)
     if not sx or z <= 0 then return end
 
-    local scale = (camera._f / z) * (baseScale/1.25)
-    local w, h = img:getWidth(), img:getHeight()
+    local base = (camera._f / z) * (baseScale / 1.25)
+
+    local sxScale = base * (scaleX or 1)
+    local syScale = base * (scaleY or 1)
+
+    if flip then
+        sxScale = -sxScale
+    end
+
+    local w, h = img:getDimensions()
     local textureMul = nightCycle.getTextureMultiplier() or {1,1,1}
 
     lg.push("all")
     lg.setDepthMode("lequal", true)
-    --clipping was useless
     lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
-    lg.draw(img, sx, sy, rotation or 0, flip and -scale or scale, scale, w / 2, h)
+    lg.draw(img, sx, sy, rotation or 0, sxScale, syScale, w / 2, h)
     lg.pop()
 end
 

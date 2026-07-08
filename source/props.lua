@@ -42,7 +42,20 @@ local propTypes = {
             {item = "oak", count = {3, 7}}
         },
         isTree = true,
-        spawnOn = {"grassNormal", "grassHot", "grassCold"}
+        spawnOn = {"grassNormal", "grassCold"},
+        scale = {1.5, 1.6},
+    },
+    {
+        img = lg.newImage(im.."plants/acacia.png"), 
+        maxHealth = 10, 
+        name = "Acacia Tree", 
+        bestTool = "axe", 
+        rewards = {
+            {item = "oak", count = {3, 7}}
+        },
+        isTree = true,
+        spawnOn = {"grassHot"},
+        scale = {1.7, 1.8},
     },
     {
         img = lg.newImage(im.."rock.png"), 
@@ -252,6 +265,21 @@ local function tableContains(t, val)
     return false
 end
 
+local MIN_CLUSTER_DISTANCE = 1.5
+local MAX_CLUSTER_DISTANCE = 4.5
+local MIN_PROP_DISTANCE = 1.25
+
+local function isTooClose(x, z)
+    for _, p in ipairs(props) do
+        local dx = p.x - x
+        local dz = p.z - z
+        if dx * dx + dz * dz < MIN_PROP_DISTANCE * MIN_PROP_DISTANCE then
+            return true
+        end
+    end
+    return false
+end
+
 local function spawnProps(num, mapWidth, mapDepth, getTileAt)
     local spawned, attempts = 0, 0
     local maxAttempts = num * 100
@@ -284,7 +312,8 @@ local function spawnProps(num, mapWidth, mapDepth, getTileAt)
                 px, pz = x, z
             else
                 local angle = random() * math.pi * 2
-                local dist = random() * 3.5
+                local dist = MIN_CLUSTER_DISTANCE + random() * (MAX_CLUSTER_DISTANCE - MIN_CLUSTER_DISTANCE)
+
                 px = x + math.cos(angle) * dist
                 pz = z + math.sin(angle) * dist
             end
@@ -294,7 +323,12 @@ local function spawnProps(num, mapWidth, mapDepth, getTileAt)
 
                 if ptile
                 and ptile.textureName
-                and tableContains(t.spawnOn, ptile.textureName) then
+                and tableContains(t.spawnOn, ptile.textureName)
+                and not isTooClose(px, pz) then
+                    local propScale = 1
+                    if t.scale then
+                        propScale = t.scale[1] + random() * (t.scale[2] - t.scale[1])
+                    end
 
                     props[#props + 1] = {
                         typeIndex = idx,
@@ -307,6 +341,7 @@ local function spawnProps(num, mapWidth, mapDepth, getTileAt)
                         shakeOffsetX = 0,
                         shakeOffsetY = 0,
                         length = t.isTall and random(5,15) or nil,
+                        scale = propScale
                     }
 
                     spawned = spawned + 1
@@ -369,7 +404,8 @@ local function loadSavedProps(savedProps)
                 x = p.x,
                 y = p.y,
                 z = p.z,
-                img = treeStages[stage] and treeStages[stage].img
+                img = treeStages[stage] and treeStages[stage].img,
+                scale = p.scale or 1,
             }
             props[#props + 1] = prop
             if prop.x and prop.z then
@@ -387,7 +423,8 @@ local function loadSavedProps(savedProps)
                 shakeOffsetX = p.shakeOffsetX or 0,
                 shakeOffsetY = p.shakeOffsetY or 0,
                 length = p.length,
-                isCut = p.isCut
+                isCut = p.isCut,
+                scale = p.scale or 1,
             }
             local t = propTypes[prop.typeIndex]
             if t then
@@ -463,10 +500,10 @@ local function drawProps(propList, drawWithStencil)
         local totalPixelHeight = t and t.h or 0
 
         if prop.type == "growingTree" then
-            drawWithStencil(prop.x, prop.y - 0.04, prop.z, prop.img, false)
+            drawWithStencil(prop.x, prop.y - 0.04, prop.z, prop.img, false, prop.scale or 1, prop.scale or 1)
         elseif t then
             if t.isTall then
-                drawWithStencil(prop.x, prop.y - 0.04, prop.z, t.imgBottom, false)
+                drawWithStencil(prop.x, prop.y - 0.04, prop.z, t.imgBottom, false, prop.scale or 1, prop.scale or 1)
                 local currentYOffset = 0.04
                 local bottomH = t.imgBottom:getHeight()
                 local middleH = t.imgMiddle:getHeight()
@@ -476,13 +513,13 @@ local function drawProps(propList, drawWithStencil)
                 local pixelToWorldY = 0.0075
                 for layer = 1, prop.length do
                     local yShift = (bottomH + (layer - 1) * middleH) * pixelToWorldY
-                    drawWithStencil(prop.x, prop.y - currentYOffset + yShift, prop.z, t.imgMiddle, false)
+                    drawWithStencil(prop.x, prop.y - currentYOffset + yShift, prop.z, t.imgMiddle, false, prop.scale or 1, prop.scale or 1)
                 end
                 local topShift = (bottomH + prop.length * middleH) * pixelToWorldY
-                drawWithStencil(prop.x, prop.y - currentYOffset + topShift, prop.z, t.imgTop, false)
+                drawWithStencil(prop.x, prop.y - currentYOffset + topShift, prop.z, t.imgTop, false, prop.scale or 1, prop.scale or 1)
             else
                 local img = prop.img or t.img
-                drawWithStencil(prop.x, prop.y - 0.04, prop.z, img, false)
+                drawWithStencil(prop.x, prop.y - 0.04, prop.z, img, false, prop.scale or 1, prop.scale or 1)
             end
         end
         local dx, dz = prop.x - cx, prop.z - cz
@@ -524,12 +561,14 @@ local function handleMousePressed(mx, my)
                 if not t then
                     goto continue
                 end
-                local scale = (1 / z) * 6
+                local scale = (1 / z) * 6 * (prop.scale or 1)
                 local propHeight = t.h
                 if t.isTall and prop.length then
                     propHeight = t.imgBottom:getHeight() + (t.imgMiddle:getHeight() * prop.length) + t.imgTop:getHeight()
                 end
-                local w, h = (t.w or 1) * scale, propHeight * scale
+                local objectScale = prop.scale or 1
+                local w = (t.w or 1) * scale * objectScale
+                local h = propHeight * scale * objectScale
 
                 if mx >= sx - w / 2 and mx <= sx + w / 2 and my >= sy - h and my <= sy and t then
                     local multiplier = selected and ItemsModule.getToolMultiplier(selected.type, t.bestTool) or 1

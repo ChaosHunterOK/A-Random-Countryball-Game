@@ -6,7 +6,8 @@ Audio.songs = {
     main = "music/music.mp3",
     menu = "music/menu.mp3",
     pause = "music/taketwo_3.mp3",
-    credits = "music/takethree.mp3"
+    credits = "music/takethree.mp3",
+    windy = "music/windy2.mp3",
 }
 Audio.sources = {}
 
