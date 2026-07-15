@@ -31,11 +31,54 @@ local countryball = {
     shakeDuration = 0.25,
     shakeStrength = 0.25,
     hungerExhaustion = 0,
-    hungerDecayRate = 0.05,
+    hungerDecayRate = 0.02,
     currentAge = "stone_age",
     potteryItemsCrafted = 0,
     copperSmelted = 0,
+    remotePlayers = {},
+    _syncTimer = 0,
+    _syncInterval = 0.05,
+    images = {},
+    skinCache = {}
 }
+
+function countryball.getSkinImages(name)
+    if not name or name == "default" then name = "countryball" end
+    if countryball.skinCache[name] then
+        return countryball.skinCache[name]
+    end
+
+    local path = "skins/" .. name .. "/"
+    local defaultPath = "image/countryball/senegal/"
+    if not love.filesystem.getInfo(path, "directory") then
+        path = defaultPath
+    end
+
+    local function tryImage(p, fb)
+        if love.filesystem.getInfo(p) then return love.graphics.newImage(p) end
+        return love.graphics.newImage(fb)
+    end
+
+    local images = {
+        idle = {
+            tryImage(path.."idle1.png", defaultPath.."idle1.png"),
+            tryImage(path.."idle2.png", defaultPath.."idle2.png")
+        },
+        walk = {
+            tryImage(path.."walk1.png", defaultPath.."walk1.png"),
+            tryImage(path.."walk2.png", defaultPath.."walk2.png"),
+            tryImage(path.."walk3.png", defaultPath.."walk3.png"),
+            tryImage(path.."walk4.png", defaultPath.."walk4.png"),
+            tryImage(path.."walk5.png", defaultPath.."walk5.png")
+        },
+        damage = {
+            tryImage(path.."damage.png", defaultPath.."damage.png")
+        }
+    }
+
+    countryball.skinCache[name] = images
+    return images
+end
 
 function countryball:takeDamage(amount, dirX, dirZ)
     self.health = math.max(0, self.health - amount)
@@ -50,6 +93,7 @@ function countryball:takeDamage(amount, dirX, dirZ)
 end
 
 local function getFrames(animImages, animName, dt, state)
+    if not animImages then return nil end
     local frames = animImages[animName]
     if not frames then return nil end
     if type(frames) ~= "table" then
@@ -67,6 +111,61 @@ local function getFrames(animImages, animName, dt, state)
     end
 
     return frames[state.frameIndex]
+end
+
+function countryball.networkSync(MultiplayerMenu, dt)
+    if not MultiplayerMenu or not MultiplayerMenu:isActive() then return end
+    countryball._syncTimer = countryball._syncTimer + dt
+    if countryball._syncTimer < countryball._syncInterval then return end
+    countryball._syncTimer = 0
+
+    local SkinsMenu = require("source.menus.skins")
+    local skinName = SkinsMenu and SkinsMenu.loadedSkinName or "default"
+
+    MultiplayerMenu:send({
+        id = MultiplayerMenu.localId,
+        x = countryball.x,
+        y = countryball.y,
+        z = countryball.z,
+        flip = countryball.flip,
+        anim = countryball.animation,
+        skin = skinName,
+    }, false)
+end
+
+function countryball.onNetworkData(data)
+    if not data then return end
+    if data.sys == "leave" then
+        if data.id ~= nil then countryball.remotePlayers[data.id] = nil end
+        return
+    end
+    if data.id == nil then return end
+
+    local rp = countryball.remotePlayers[data.id]
+    if not rp then
+        rp = {frameTimer = 0, frameIndex = 1}
+        countryball.remotePlayers[data.id] = rp
+    end
+    rp.x, rp.y, rp.z = data.x, data.y, data.z
+    rp.flip = data.flip or false
+    rp.animation = data.anim or "idle"
+    rp.skin = data.skin or "default"
+    rp.lastUpdate = love.timer.getTime()
+end
+
+function countryball.updateRemotePlayers(dt)
+    local now = love.timer.getTime()
+    for id, rp in pairs(countryball.remotePlayers) do
+        local skinImages = countryball.getSkinImages(rp.skin)
+        rp.currentFrame = getFrames(skinImages, rp.animation, dt, rp)
+        if rp.lastUpdate and now - rp.lastUpdate > 10 then
+            countryball.remotePlayers[id] = nil
+        end
+    end
+end
+
+function countryball.clearRemotePlayers()
+    countryball.remotePlayers = {}
 end
 
 function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
@@ -223,7 +322,7 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
 end
 
 function countryball.draw(drawWithStencil, Inventory, itemModule)
-    local img = countryball.currentFrame or countryball.images.idle[1]
+    local img = countryball.currentFrame or (countryball.images.idle and countryball.images.idle[1])
     if not img then return end
 
     local shakeX, shakeZ = 0, 0
@@ -234,7 +333,6 @@ function countryball.draw(drawWithStencil, Inventory, itemModule)
     end
 
     drawWithStencil(countryball.x + shakeX, countryball.y, countryball.z + shakeZ, img, countryball.flip)
-
     local selected = Inventory:getSelected()
     if not selected or not selected.type then return end
 
@@ -250,7 +348,7 @@ function countryball.viewDraw(x, y, flip, size)
     y = y or 0
     flip = flip or 1
     size = size or 1
-    local img = countryball.images.idle[1]
+    local img = countryball.images.idle and countryball.images.idle[1]
     if not img then return end
     lg.draw(img, x, y, 0, flip * size, size)
 end

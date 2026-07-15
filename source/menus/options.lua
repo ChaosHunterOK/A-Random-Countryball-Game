@@ -21,7 +21,7 @@ Options.categories = {
     {
         name = "Audio",
         items = {
-            {name="Music Volume", type="slider", value=0.5, min=0, max=1, step=0.05},
+            {name="Audio Volume", type="slider", value=0.5, min=0, max=1, step=0.05},
         }
     },
     {
@@ -56,7 +56,7 @@ Options.categories = {
 Options.state = "categories"
 Options.defaults = {
     ["FPS Cap"] = 60,
-    ["Music Volume"] = 0.5,
+    ["Audio Volume"] = 0.5,
     ["Camera Sensitivity"] = 0,
     ["Camera Smoothness"] = 5.0,
     ["Chunk Size"] = 4,
@@ -93,7 +93,7 @@ function Options:load(camera, chunkCfg, visible_idk)
     end
 
     self:forEachItem(function(item)
-        if item.name == "Music Volume" then
+        if item.name == "Audio Volume" then
             love.audio.setVolume(item.value)
         elseif item.name == "Camera Sensitivity" then
             camera.sensitivity = item.value
@@ -244,7 +244,7 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
             local oldValue = current.value
             current.value = math.max(current.min, math.min(current.max, current.value + delta))
 
-            if current.name == "Music Volume" then
+            if current.name == "Audio Volume" then
                 love.audio.setVolume(current.value)
             elseif current.name == "Camera Sensitivity" then
                 camera.sensitivity = current.value
@@ -283,7 +283,7 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
                 end
             end)
             FPS_CAP = self.defaults["FPS Cap"]
-            love.audio.setVolume(self.defaults["Music Volume"])
+            love.audio.setVolume(self.defaults["Audio Volume"])
             camera.sensitivity = self.defaults["Camera Sensitivity"]
             camera.smoothness = self.defaults["Camera Smoothness"]
             chunkCfg.size = self.defaults["Chunk Size"]

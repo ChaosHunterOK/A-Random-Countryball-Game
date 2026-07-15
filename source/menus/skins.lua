@@ -10,13 +10,11 @@ local SkinsMenu = {
     selected = 1,
     loadedSkinName = "countryball",
     animStates = {},
-    ejectingSkin = nil
+    ejectingSkin = nil,
+    scrollOffset = 0,
+    visibleRows = 8,
+    itemSpacing = 60
 }
-
-SkinsMenu.selectedIndex = 1
-SkinsMenu.scrollOffset = 0
-SkinsMenu.visibleRows = 8
-SkinsMenu.itemSpacing = 60
 
 local function expEase(current, target, speed, dt)
     return current + (target - current) * math.min(dt * speed, 1)
@@ -46,6 +44,9 @@ function SkinsMenu.load()
     for i = 1, #SkinsMenu.skins do
         SkinsMenu.animStates[i] = { offset = 0, pulse = 0 }
     end
+    
+    SkinsMenu.selected = 1
+    SkinsMenu.scrollOffset = 0
 end
 
 function SkinsMenu:update(dt)
@@ -68,8 +69,14 @@ function SkinsMenu:update(dt)
         end
     end
 end
+
+function SkinsMenu.tryImage(path, fallback)
+    if love.filesystem.getInfo(path) then return lg.newImage(path) end
+    return lg.newImage(fallback)
+end
+
 function SkinsMenu.applySkin(name)
-    if countryball.images and countryball.images.idle then
+    if countryball.images and countryball.images.idle and countryball.images.idle[1] then
         SkinsMenu.ejectingSkin = {
             img = countryball.images.idle[1],
             x = base_width - 120,
@@ -81,39 +88,13 @@ function SkinsMenu.applySkin(name)
             gravity = 1200
         }
     end
+
     if name == "default" then
         name = "countryball"
     end
 
     SkinsMenu.loadedSkinName = name
-
-    local path = SKIN_FOLDER .. "/" .. name .. "/"
-    local defaultPath = "image/countryball/senegal/"
-    if not love.filesystem.getInfo(path, "directory") then
-        path = defaultPath
-    end
-
-    countryball.images = {
-        idle = {
-            SkinsMenu.tryImage(path.."idle1.png", defaultPath.."idle1.png"),
-            SkinsMenu.tryImage(path.."idle2.png", defaultPath.."idle2.png")
-        },
-        walk = {
-            SkinsMenu.tryImage(path.."walk1.png", defaultPath.."walk1.png"),
-            SkinsMenu.tryImage(path.."walk2.png", defaultPath.."walk2.png"),
-            SkinsMenu.tryImage(path.."walk3.png", defaultPath.."walk3.png"),
-            SkinsMenu.tryImage(path.."walk4.png", defaultPath.."walk4.png"),
-            SkinsMenu.tryImage(path.."walk5.png", defaultPath.."walk5.png")
-        },
-        damage = {
-            SkinsMenu.tryImage(path.."damage.png", defaultPath.."damage.png")
-        }
-    }
-end
-
-function SkinsMenu.tryImage(path, fallback)
-    if love.filesystem.getInfo(path) then return lg.newImage(path) end
-    return lg.newImage(fallback)
+    countryball.images = countryball.getSkinImages(name)
 end
 
 function SkinsMenu:draw()
@@ -123,11 +104,13 @@ function SkinsMenu:draw()
     
     lg.draw(stage, base_width - 355, base_height / 1.7, 0, 2, 2)
     countryball.viewDraw(base_width - 120, base_height / 2.5, -1, 2)
+
     if self.ejectingSkin then
         local e = self.ejectingSkin
         lg.setColor(1, 1, 1, 1)
         lg.draw(e.img, e.x, e.y, e.angle, -2, 2, e.img:getWidth()/2, e.img:getHeight()/2)
     end
+    
     utils.drawTextWithBorder("SKINS", base_width/2 - 40, 40)
 
     for i, s in ipairs(self.skins) do
@@ -136,13 +119,10 @@ function SkinsMenu:draw()
             local anim = self.animStates[i]
             local y = startY + (drawIndex-1) * spacing
             local x = 25 + (anim and anim.offset or 0)
-            local col = i == self.selected and {1, 1, 0} or {1, 1, 1}
+            local col = (i == self.selected) and {1, 1, 0} or {1, 1, 1}
             local label = (s == "default") and "Senegal (Default)" or s
 
             lg.push()
-            -- local scale = (i == self.selected) and (1 + math.sin(anim.pulse)*0.05) or 1
-            -- lg.scale(scale, scale)
-            
             utils.drawTextWithBorder(label, x, y, screenW, "left", {0, 0, 0}, col)
             lg.pop()
         end
@@ -152,13 +132,6 @@ function SkinsMenu:draw()
 end
 
 function SkinsMenu:keypressed(key)
-    if self.selectedIndex - 1 < self.scrollOffset then
-        self.scrollOffset = self.selectedIndex - 1
-    elseif self.selectedIndex > self.scrollOffset + self.visibleRows then
-        self.scrollOffset = self.selectedIndex - self.visibleRows
-    end
-
-    if self.scrollOffset < 0 then self.scrollOffset = 0 end
     if key == "down" then
         self.selected = self.selected + 1
         if self.selected > #self.skins then self.selected = 1 end
@@ -167,6 +140,15 @@ function SkinsMenu:keypressed(key)
         if self.selected < 1 then self.selected = #self.skins end
     elseif key == "return" then
         SkinsMenu.applySkin(self.skins[self.selected])
+    end
+    if self.selected - 1 < self.scrollOffset then
+        self.scrollOffset = self.selected - 1
+    elseif self.selected > self.scrollOffset + self.visibleRows then
+        self.scrollOffset = self.selected - self.visibleRows
+    end
+
+    if self.scrollOffset < 0 then 
+        self.scrollOffset = 0 
     end
 end
 

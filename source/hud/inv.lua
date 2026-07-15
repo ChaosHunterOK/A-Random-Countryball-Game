@@ -1,6 +1,7 @@
 local love = require "love"
 local lg = love.graphics
 local utils = require("source.utils")
+local Progression = require("source.progression")
 
 local Inventory = {}
 Inventory.items = {}
@@ -53,6 +54,13 @@ end
 function Inventory:add(itemType, amount, itemTypes, durability)
     amount = amount or 1
     local stackLimit = itemTypes[itemType].stack or 1
+    if itemType then
+        if itemType:find("clay_") then
+            Progression:trackItemCrafted(itemType, itemTypes)
+        elseif itemType == "copper_ingot" then
+            Progression:trackSmelted(itemType)
+        end
+    end
     for _, slot in ipairs(self.items) do
         if slot and slot.type == itemType then
             local toAdd = math.min(amount, stackLimit - slot.count)

@@ -1,3 +1,4 @@
+local lg = love.graphics
 local Transition = {}
 
 Transition.state = {
@@ -86,9 +87,9 @@ function Transition.draw(width, height)
     local st = Transition.state
 
     if st.mode == "fadeOut" or st.mode == "fadeIn" then
-        love.graphics.setColor(0, 0, 0, st.alpha)
-        love.graphics.rectangle("fill", 0, 0, width, height)
-        love.graphics.setColor(1, 1, 1, 1)
+        lg.setColor(0, 0, 0, st.alpha)
+        lg.rectangle("fill", 0, 0, width, height)
+        lg.setColor(1, 1, 1, 1)
     end
     if Transition.slide.active then
         local s = Transition.slide
@@ -97,14 +98,14 @@ function Transition.draw(width, height)
         local dir = (s.direction == "left") and -1 or 1
         local offset = s.distance * (1 - t) * dir
 
-        love.graphics.push()
-        love.graphics.translate(offset, 0)
+        lg.push()
+        lg.translate(offset, 0)
 
-        love.graphics.setColor(0, 0, 0, t * 0.5)
-        love.graphics.rectangle("fill", -offset, 0, width, height)
+        lg.setColor(0, 0, 0, t * 0.5)
+        lg.rectangle("fill", -offset, 0, width, height)
 
-        love.graphics.pop()
-        love.graphics.setColor(1, 1, 1, 1)
+        lg.pop()
+        lg.setColor(1, 1, 1, 1)
     end
 end
 

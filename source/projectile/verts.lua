@@ -7,15 +7,17 @@ local lg = love.graphics
 local m = math
 local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
+local glOk, glcompat = pcall(require, "source.gl.opengles2")
+if not glOk then glcompat = nil end
 
-ffi.cdef[[typedef struct {double dirx, dirz, amplitude, k, speed, steepness, uvSpeed;} Wave;]]
+ffi.cdef[[
+    typedef struct {double dirx, dirz, amplitude, k, speed, steepness, uvSpeed;} Wave;
+    typedef struct {float x, y, u, v, r, g, b, a;} TerrainVert;
+]]
 
 local Verts = {}
 Verts.meshPool = {}
-Verts.meshCount = 0
 local time = 0
-local result_table = {}
-local outCount = 0
 local wrappedTextures = {}
 
 local waveDefs = {
@@ -48,18 +50,21 @@ local S_TMP = { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0} }
 
 local MAX_QUADS = 4000
 local outPool = {}
-for i = 1, MAX_QUADS do 
+for i = 1, MAX_QUADS do
     outPool[i] = {
         verts = ffi.new("float[12]"),
         brightness = {0, 0, 0},
         uvOffset = {u=0, v=0},
         dist = 0,
-        hC = 0,
-        gridX = 0,
-        gridZ = 0,
-        alpha = 1.0
+        alpha = 1.0,
+        face = "top",
+        isWater = false,
+        texture = nil,
+        vRepeat = 1,
     }
 end
+local result_table = {}
+local outCount = 0
 
 local function gerstner_f(x, z)
     local y, ox, oz = 0.0, 0.0, 0.0
@@ -118,11 +123,11 @@ local neighborOffsets = {
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end
     camera:updateProjectionConstants()
-    
+
     local camX, camZ = camera.x, camera.z
     local uvU, uvV = 0, 0
     local timeVal = time
-    
+
     for i = 0, WN-1 do
         local w = waves_ffi[i]
         timeK_ffi[i] = w.speed * timeVal
@@ -150,15 +155,10 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     local waterSmall, waterMed, waterDeep = materials.waterSmall, materials.waterMedium, materials.waterDeep
     local invAmbient2 = invAmbient * 1.05
     local tileCount = #tiles
-    
-    local hwDist = camera.hw
-    local camZoom = camera.zoom
-    local fovTan = camera._fovTan or math.tan(math.rad(camera.fov / 2))
-    camera._fovTan = fovTan
 
     for t = 1, tileCount do
         if outCount >= MAX_QUADS then break end
-        
+
         local tile = tiles[t]
         local t1, t3 = tile[1], tile[3]
         local v1x, v1y, v1z = t1[1], t1[2], t1[3]
@@ -192,7 +192,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         V_TMP[3][1], V_TMP[3][2], V_TMP[3][3] = v3x, v3y, v3z
         V_TMP[4][1], V_TMP[4][2], V_TMP[4][3] = v4x, v4y, v4z
 
-        if projectQuadToBuf(camera, V_TMP[1], V_TMP[2], V_TMP[3], V_TMP[4], projBuf) then
+        if outCount < MAX_QUADS and projectQuadToBuf(camera, V_TMP[1], V_TMP[2], V_TMP[3], V_TMP[4], projBuf) then
             local gridX, gridZ = floor(t1[1]), floor(t1[3])
             local hC = tile.height or ((v1y + v2y + v3y + v4y) * 0.25)
             local rowL, rowR, rowC = tileGrid[gridX-1], tileGrid[gridX+1], tileGrid[gridX]
@@ -203,7 +203,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
             local nx, ny, nz = -(hR - hL) * 0.5, 1.0, -(hD - hU) * 0.5
             nx, ny, nz = lib3d.vec3Normalize(nx, ny, nz)
-            
+
             local dotV = lib3d.vec3Dot(nx, ny, nz, sDX, sDY, sDZ)
             local diff = (dotV < 0) and 0 or dotV
             local br = ambient + diff * (isWater and invAmbient2 or invAmbient)
@@ -211,9 +211,9 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
             outCount = outCount + 1
             local entry = outPool[outCount]
-            for j=0,11 do entry.verts[j] = projBuf[j] end
-            local zavg = (projBuf[2] + projBuf[5] + projBuf[8] + projBuf[11]) * 0.25
-            entry.dist = zavg
+            local ev = entry.verts
+            for j=0,11 do ev[j] = projBuf[j] end
+            entry.dist = dx*dx + dy*dy + dz*dz
             entry.texture = tex
             entry.uvOffset.u = isWater and uvU or 0
             entry.uvOffset.v = isWater and uvV or 0
@@ -222,6 +222,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
             b_arr[1], b_arr[2], b_arr[3] = tr, tg, tb
             entry.isWater = isWater
             entry.alpha = isWater and 0.55 or 1.0
+            entry.face = "top"
         end
         do
             local gridX, gridZ = floor(t1[1]), floor(t1[3])
@@ -230,6 +231,7 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
             local topY = hC
             local tileTexture = tile.texture
             for oi = 1, 4 do
+                if outCount >= MAX_QUADS then break end
                 local off = neighborOffsets[oi]
                 local nbRow = tileGrid[gridX + off.nx]
                 local nb = nbRow and nbRow[gridZ + off.nz]
@@ -262,23 +264,21 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
                     local sideVisible = projectQuadToBuf(camera, S1, S2, S3, S4, projBuf)
                     if sideVisible then
-                        --if not (dist > renderDistanceSq * 0.4) and dist <= renderDistanceSq then
-                            outCount = outCount + 1
-                            local entry = outPool[outCount]
-                            for j=0,11 do entry.verts[j] = projBuf[j] end
-                            local zavg = (projBuf[2] + projBuf[5] + projBuf[8] + projBuf[11]) * 0.25
-                            entry.dist = zavg
-                            entry.texture = tileTexture
-                            entry.tile = tile
-                            entry.uvOffset.u = 0
-                            entry.uvOffset.v = 0
-                            entry.isWater = water
-                            entry.face = "side"
-                            entry.vRepeat = floor(max(1, topY - nbHeight))
+                        outCount = outCount + 1
+                        local entry = outPool[outCount]
+                        local ev = entry.verts
+                        for j=0,11 do ev[j] = projBuf[j] end
+                        entry.dist = dx*dx + dy*dy + dz*dz
+                        entry.texture = tileTexture
+                        entry.uvOffset.u = 0
+                        entry.uvOffset.v = 0
+                        entry.isWater = false
+                        entry.alpha = 1.0
+                        entry.face = "side"
+                        entry.vRepeat = floor(max(1, topY - nbHeight))
 
-                            local b_arr = entry.brightness
-                            b_arr[1], b_arr[2], b_arr[3] = tr, tg, tb
-                        --end
+                        local b_arr = entry.brightness
+                        b_arr[1], b_arr[2], b_arr[3] = tr, tg, tb
                     end
                 end
             end
@@ -289,28 +289,123 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
 
     for i = 1, outCount do result_table[i] = outPool[i] end
     for i = outCount + 1, #result_table do result_table[i] = nil end
-    table.sort(result_table, function(a, b) return a.dist > b.dist end)
     return result_table
 end
+local VFORMAT = {
+    {"VertexPosition", "float", 2},
+    {"VertexTexCoord", "float", 2},
+    {"VertexColor", "float", 4},
+}
+local TERRAIN_VERT_SIZE = ffi.sizeof("TerrainVert")
+local INITIAL_BATCH_QUADS = 128
+local DEPTH_BUCKETS = 64
 
-function Verts.ensureAllMeshes(visibleTiles, fallback)
-    local meshCount = #visibleTiles
-    
-    for i = 1, meshCount do
-        local t = visibleTiles[i]
+Verts.batches = {}
+local activeBatches = {}
+local activeBatchCount = 0
+local terrainDrawList = {}
+local terrainDrawCount = 0
+
+local function buildVertexMap(capacityQuads)
+    local map = {}
+    for i = 0, capacityQuads - 1 do
+        local base = i * 4
+        local o = i * 6
+        map[o+1] = base+1
+        map[o+2] = base+2
+        map[o+3] = base+3
+        map[o+4] = base+1
+        map[o+5] = base+3
+        map[o+6] = base+4
+    end
+    return map
+end
+
+local function newBatch(capacityQuads)
+    local vcount = capacityQuads * 4
+    local data = love.data.newByteData(vcount * TERRAIN_VERT_SIZE)
+    local ptrOk, ptr = pcall(function() return ffi.cast("TerrainVert*", data:getFFIPointer()) end)
+    if not ptrOk then
+        ptr = ffi.cast("TerrainVert*", data:getPointer())
+    end
+    local mesh = lg.newMesh(VFORMAT, vcount, "triangles", "stream")
+    mesh:setVertexMap(buildVertexMap(capacityQuads))
+    return {
+        mesh = mesh,
+        data = data,
+        ptr = ptr,
+        capacity = capacityQuads,
+        quadCount = 0,
+    }
+end
+
+local function getOrCreateBatch(tex, bucket)
+    local perTex = Verts.batches[tex]
+    if not perTex then
+        perTex = {}
+        Verts.batches[tex] = perTex
+    end
+    local batch = perTex[bucket]
+    if not batch then
+        batch = newBatch(INITIAL_BATCH_QUADS)
+        perTex[bucket] = batch
+    end
+    return batch
+end
+
+local function writeQuad(tex, bucket, batch, q)
+    if batch.quadCount >= batch.capacity then
+        local grown = newBatch(batch.capacity * 2)
+        grown.quadCount = batch.quadCount
+        Verts.batches[tex][bucket] = grown
+        batch = grown
+    end
+
+    local idx = batch.quadCount
+    local ptr = batch.ptr
+    local base = idx * 4
+    local v = q.verts
+    local uv = q.uvOffset
+    local vr = q.vRepeat or 1
+    local br = q.brightness
+    local r, g, b, a = br[1], br[2], br[3], q.alpha or 1.0
+
+    local p0 = ptr[base]
+    p0.x, p0.y, p0.u, p0.v = v[0], v[1], uv.u, uv.v
+    p0.r, p0.g, p0.b, p0.a = r, g, b, a
+
+    local p1 = ptr[base+1]
+    p1.x, p1.y, p1.u, p1.v = v[3], v[4], uv.u + 1, uv.v
+    p1.r, p1.g, p1.b, p1.a = r, g, b, a
+
+    local p2 = ptr[base+2]
+    p2.x, p2.y, p2.u, p2.v = v[6], v[7], uv.u + 1, uv.v + vr
+    p2.r, p2.g, p2.b, p2.a = r, g, b, a
+
+    local p3 = ptr[base+3]
+    p3.x, p3.y, p3.u, p3.v = v[9], v[10], uv.u, uv.v + vr
+    p3.r, p3.g, p3.b, p3.a = r, g, b, a
+
+    batch.quadCount = idx + 1
+end
+
+local transparentPool = {}
+local transparentCount = 0
+
+local function prepareTransparent(count, fallback)
+    for i = count + 1, #transparentPool do transparentPool[i] = nil end
+    table.sort(transparentPool, function(a, b) return a.dist > b.dist end)
+
+    for i = 1, count do
+        local t = transparentPool[i]
         local mesh = Verts.meshPool[i]
         if not mesh then
-            mesh = lg.newMesh({
-                {"VertexPosition", "float", 2},
-                {"VertexTexCoord", "float", 2},
-                {"VertexColor", "float", 4},
-            }, 4, "fan", "dynamic")
+            mesh = lg.newMesh(VFORMAT, 4, "fan", "dynamic")
             Verts.meshPool[i] = mesh
         end
         local v, uv, br = t.verts, t.uvOffset, t.brightness
         local vr = t.vRepeat or 1
-
-        local alpha = t.alpha or 1.0
+        local alpha = t.alpha or 0.55
         mesh:setVertices({
             {v[0], v[1],   uv.u,     uv.v,      br[1], br[2], br[3], alpha},
             {v[3], v[4],   uv.u + 1, uv.v,      br[1], br[2], br[3], alpha},
@@ -327,6 +422,93 @@ function Verts.ensureAllMeshes(visibleTiles, fallback)
         end
         t.mesh = mesh
     end
+end
+function Verts.buildBatches(visibleQuads, fallback)
+    for i = 1, activeBatchCount do
+        local e = activeBatches[i]
+        local perTex = Verts.batches[e.tex]
+        local batch = perTex and perTex[e.bucket]
+        if batch then batch.quadCount = 0 end
+        activeBatches[i] = nil
+    end
+    activeBatchCount = 0
+    terrainDrawCount = 0
+
+    local n = #visibleQuads
+    local minD, maxD = math.huge, -math.huge
+    for i = 1, n do
+        local q = visibleQuads[i]
+        if not (q.isWater and q.face == "top") then
+            local d = q.dist
+            if d < minD then minD = d end
+            if d > maxD then maxD = d end
+        end
+    end
+    local range = maxD - minD
+    if range <= 0 or range ~= range then range = 1 end
+    local bucketScale = DEPTH_BUCKETS / range
+
+    transparentCount = 0
+    for i = 1, n do
+        local q = visibleQuads[i]
+        if q.isWater and q.face == "top" then
+            transparentCount = transparentCount + 1
+            transparentPool[transparentCount] = q
+        else
+            local tex = q.texture or fallback
+            if tex then
+                local bucket = floor((q.dist - minD) * bucketScale)
+                if bucket < 0 then bucket = 0 end
+                if bucket >= DEPTH_BUCKETS then bucket = DEPTH_BUCKETS - 1 end
+
+                local batch = getOrCreateBatch(tex, bucket)
+                if batch.quadCount == 0 then
+                    activeBatchCount = activeBatchCount + 1
+                    activeBatches[activeBatchCount] = {tex = tex, bucket = bucket}
+                end
+                writeQuad(tex, bucket, batch, q)
+            end
+        end
+    end
+
+    for i = 1, activeBatchCount do
+        local e = activeBatches[i]
+        local batch = Verts.batches[e.tex][e.bucket]
+        batch.mesh:setVertices(batch.data)
+        batch.mesh:setDrawRange(1, batch.quadCount * 6)
+        if not wrappedTextures[e.tex] then
+            e.tex:setWrap("repeat", "repeat")
+            wrappedTextures[e.tex] = true
+        end
+        batch.mesh:setTexture(e.tex)
+
+        terrainDrawCount = terrainDrawCount + 1
+        terrainDrawList[terrainDrawCount] = {
+            dist = minD + (e.bucket + 0.5) / bucketScale,
+            mesh = batch.mesh,
+        }
+    end
+    for i = terrainDrawCount + 1, #terrainDrawList do terrainDrawList[i] = nil end
+    table.sort(terrainDrawList, function(a, b) return a.dist > b.dist end)
+
+    prepareTransparent(transparentCount, fallback)
+    return transparentPool, transparentCount, terrainDrawList, terrainDrawCount
+end
+
+function Verts.drawTerrainMesh(mesh)
+    if glcompat then
+        glcompat.enable(glcompat.GL_CULL_FACE)
+        glcompat.cullFace(glcompat.GL_BACK)
+    end
+    lg.setColor(1, 1, 1, 1)
+    lg.draw(mesh)
+    if glcompat then
+        glcompat.disable(glcompat.GL_CULL_FACE)
+    end
+end
+
+function Verts.ensureAllMeshes(visibleTiles, fallback)
+    return Verts.buildBatches(visibleTiles, fallback)
 end
 
 function Verts.setTime(t)

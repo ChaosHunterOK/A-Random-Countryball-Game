@@ -1,3 +1,5 @@
+local Achievement = require("source.hud.achievement")
+
 local Progression = {}
 
 Progression.ages = {
@@ -45,6 +47,7 @@ local progressionState = {
         items_crafted = {},
         items_smelted = {},
         pottery_items_made = 0,
+        crafted_clay_items = 0,
         copper_smelted = 0,
         total_items_crafted = 0
     }
@@ -61,10 +64,9 @@ end
 function Progression:trackItemCrafted(itemType, itemTypes)
     progressionState.statistics.total_items_crafted = progressionState.statistics.total_items_crafted + 1
     progressionState.statistics.items_crafted[itemType] = (progressionState.statistics.items_crafted[itemType] or 0) + 1
-    
-    -- Check for pottery age unlock
     if itemType and itemType:find("clay_") then
         progressionState.statistics.pottery_items_made = progressionState.statistics.pottery_items_made + 1
+        progressionState.statistics.crafted_clay_items = (progressionState.statistics.crafted_clay_items or 0) + 1
         self:checkAgeUnlock("pottery_age")
     end
 end
@@ -93,7 +95,8 @@ function Progression:checkAgeUnlock(ageName)
                 break
             end
         elseif req == "crafted_clay_items" then
-            if progressionState.statistics.pottery_items_made < value then
+            local craftedClay = progressionState.statistics[req] or progressionState.statistics.pottery_items_made or 0
+            if craftedClay < value then
                 canUnlock = false
                 break
             end
@@ -108,6 +111,7 @@ function Progression:checkAgeUnlock(ageName)
     if canUnlock then
         progressionState.ages_unlocked[ageName] = true
         progressionState.current_age = ageName
+        Achievement:trigger(ageName)
         return true
     end
     
@@ -151,6 +155,7 @@ function Progression:resetState()
             items_crafted = {},
             items_smelted = {},
             pottery_items_made = 0,
+            crafted_clay_items = 0,
             copper_smelted = 0,
             total_items_crafted = 0
         }

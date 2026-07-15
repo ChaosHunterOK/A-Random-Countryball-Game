@@ -64,6 +64,12 @@ local itemDefinitions = {
     stone_tool = item("thing.png", 2, false, {durability = 50, toolType = "pickaxe", material = "stone"}),
 
     --iron tools
+    iron_shovel_head = item("heads/iron/shovel.png", 5),
+    iron_hoe_head = item("heads/iron/hoe.png", 5),
+    iron_knife_head = item("heads/iron/knife.png", 5),
+    iron_hammer_head = item("heads/iron/hammer.png", 5),
+    iron_pick_head = item("heads/iron/pick.png", 5),
+
     iron_shovel = item("shovel_type/iron.png", 2, false, { durability = 60, toolType = "shovel", material = "iron"}),
     iron_hoe = item("hoe_type/iron.png", 2, false, {durability = 50, toolType = "hoe", material = "iron"}),
     iron_pickaxe = item("pickaxe_type/iron.png", 2, false, {durability = 60, toolType = "pickaxe", material = "iron"}),

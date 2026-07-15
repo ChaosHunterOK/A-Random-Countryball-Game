@@ -44,6 +44,17 @@ M.GL_DEPTH_BUFFER_BIT = GL_DEPTH_BUFFER_BIT
 M.GL_LINE_SMOOTH_HINT = GL_HINT_TARGET_LINE_SMOOTH
 M.GL_POLYGON_SMOOTH_HINT = GL_HINT_TARGET_POLYGON_OFFSET
 M.GL_NICEST = GL_NICEST
+local fallback_depth_test = true
+local fallback_depth_func = "lequal"
+local fallback_depth_write = true
+
+local function update_love_depth()
+    if fallback_depth_test then
+        lg.setDepthMode(fallback_depth_func, fallback_depth_write)
+    else
+        lg.setDepthMode("always", fallback_depth_write)
+    end
+end
 
 local function detect_renderer()
     local ok, info = pcall(lg.getRendererInfo)
@@ -91,7 +102,6 @@ local function setup_ffi()
 end
 
 local setBlendMode = lg.setBlendMode
-local setDepthMode = lg.setDepthMode
 local setFrontFaceWinding = lg.setFrontFaceWinding
 
 local function fallback_enable(cap)
@@ -100,16 +110,16 @@ local function fallback_enable(cap)
     elseif cap == GL_CULL_FACE then
         setFrontFaceWinding("ccw")
     elseif cap == GL_DEPTH_TEST then
-        setDepthMode("lequal", true)
-    elseif cap == GL_LINE_SMOOTH then
-    elseif cap == GL_POLYGON_OFFSET_FILL then
-
+        fallback_depth_test = true
+        update_love_depth()
     end
 end
 
 local function fallback_disable(cap)
     if cap == GL_DEPTH_TEST then
-        setDepthMode("less", false)
+        fallback_depth_test = false
+        update_love_depth()
+    elseif cap == GL_CULL_FACE then
     end
 end
 
@@ -126,13 +136,21 @@ local function gl_blend(s, d)
 end
 
 local function gl_depthfunc(f)
-    if using_ffi then gl.glDepthFunc(f)
-    else setDepthMode(f == GL_LEQUAL and "lequal" or "less", true) end
+    if using_ffi then 
+        gl.glDepthFunc(f)
+    else 
+        fallback_depth_func = (f == GL_LEQUAL) and "lequal" or "less"
+        update_love_depth()
+    end
 end
 
 local function gl_depthmask(flag)
-    if using_ffi then gl.glDepthMask(flag and 1 or 0)
-    else setDepthMode("lequal", flag) end
+    if using_ffi then 
+        gl.glDepthMask(flag and 1 or 0)
+    else 
+        fallback_depth_write = not not flag
+        update_love_depth()
+    end
 end
 
 local function gl_hint(t, m)
@@ -166,7 +184,7 @@ end
 
 function M.init(opts)
     opts = opts or {}
-
+    
     detect_renderer()
     setup_ffi()
     gl_enable(GL_DEPTH_TEST)
@@ -186,14 +204,6 @@ function M.init(opts)
     gl_hint(0x8037, GL_FASTEST)
 
     gl_shademodel(GL_SMOOTH)
-
-    lw.setMode(0, 0, {
-        vsync = opts.vsync or 1,
-        msaa = opts.msaa or 0,
-        depth = opts.depth or 24,
-        stencil = opts.stencil ~= false,
-        highdpi = (osname == "OS X" or osname == "macOS")
-    })
 
     collectgarbage("setpause", opts.gc_pause or 110)
     collectgarbage("setstepmul", opts.gc_stepmul or 200)

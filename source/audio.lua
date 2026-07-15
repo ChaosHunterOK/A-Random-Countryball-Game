@@ -9,42 +9,66 @@ Audio.songs = {
     credits = "music/takethree.mp3",
     windy = "music/windy2.mp3",
 }
-Audio.sources = {}
+
+Audio.sounds = {
+    craft = "sounds/craft.ogg"
+}
+
+Audio.music = {}
+Audio.sfx = {}
 
 function Audio.load()
     for name, path in pairs(Audio.songs) do
         local source = love.audio.newSource(path, "stream")
         source:setLooping(true)
         source:setVolume(1)
-        Audio.sources[name] = source
+        Audio.music[name] = source
+    end
+    for name, path in pairs(Audio.sounds) do
+        local source = love.audio.newSource(path, "static")
+        source:setVolume(1)
+        Audio.sfx[name] = source
     end
 end
 
-function Audio.stopAll()
-    for _, source in pairs(Audio.sources) do
+function Audio.playMusic(name)
+    local source = Audio.music[name]
+    if not source then return end
+
+    Audio.stopMusic()
+    source:play()
+end
+
+function Audio.stopMusic()
+    for _, source in pairs(Audio.music) do
         source:stop()
-        source:setVolume(1)
     end
+end
+
+function Audio.playSound(name)
+    local source = Audio.sfx[name]
+    if not source then return end
+    love.audio.play(source:clone())
+end
+
+function Audio.getMusic(name)
+    return Audio.music[name]
+end
+
+function Audio.getSound(name)
+    return Audio.sfx[name]
 end
 
 function Audio.pauseAll()
-    for _, source in pairs(Audio.sources) do
-        if source:isPlaying() then
-            source:pause()
-        end
-    end
+    love.audio.pause()
 end
 
 function Audio.resumeAll()
-    for _, source in pairs(Audio.sources) do
-        if not source:isPlaying() then
-            source:play()
-        end
-    end
+    love.audio.play()
 end
 
-function Audio.getSource(name)
-    return Audio.sources[name]
+function Audio.stopAll()
+    love.audio.stop()
 end
 
 return Audio

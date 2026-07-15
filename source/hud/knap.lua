@@ -1,6 +1,6 @@
 local love = require "love"
 local lg = love.graphics
-local knapping_recipes = require("source.hud.knapping_recipes")
+local knapping_recipes = require("source.hud.recipes.knapping")
 
 local Knap = {}
 

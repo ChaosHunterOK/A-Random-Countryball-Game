@@ -1,7 +1,5 @@
 local love, lg = require("love"), love.graphics
 local ffi = require("ffi")
-local glmod = require("source.gl.opengl")
-local gl, GL = glmod.gl, glmod.GL
 
 lg.setDefaultFilter("nearest", "nearest")
 lg.setFrontFaceWinding("ccw")
@@ -27,6 +25,7 @@ local Inventory = require(hud.."inv")
 local Crafting = require(hud.."craft")
 local Knapping = require(hud.."knap")
 local Pottery = require(hud.."pottery")
+local Achievement = require(hud.."achievement")
 local Progression = require(src.."progression")
 local verts = require(proj.."verts")
 local Props = require(src.."props")
@@ -36,6 +35,7 @@ local OptMenu = require(menu.."options")
 local SkinsMenu = require(menu.."skins")
 local ModsMenu = require(menu.."mods")
 local CreditsMenu = require(menu.."credits")
+MultiplayerMenu = require(menu.."multiplayer")
 local ModAPI = require(src.."mod_api")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
@@ -58,18 +58,18 @@ local particlesImgs = {
 
 local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
-local chunkCfg = {size = 5, radius = 4}
+local chunkCfg = {size = 8, radius = 6}
 local base_width, base_height = camera.hw * 2, camera.hh * 2
 local renderDistance = chunkCfg.size * chunkCfg.radius
 local renderDistanceSq = renderDistance * renderDistance
 
-local bw, bh= 200, 200
-local menuItems = {"Play", "Mods", "Skins", "Options", "Credits", "Quit"}
+local bw, bh= 195, 195
+local menuItems = {"Play", "Multiplayer", "Mods", "Skins", "Options", "Credits", "Quit"}
 local selectedIndex, menuX, menuSpacing = 1, 20, base_height / 8
 local menuCamX, menuCamZ, menuTargetCamX, menuTargetCamZ = 50, 50, 50, 50
 
 local pauseOpen, pauseProgress = false, 0
-local worldList = {}
+worldList = {}
 local selectedWorldIndex = 1
 local currentWorldName = nil
 
@@ -77,11 +77,10 @@ local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
 local prevGamestate = nil
 
-local autosaveInterval = 30
-local autosaveTimer = 0
+local autosaveInterval, autosaveTimer = 30, 0
 
-local titleImage = lg.newImage(imgF.."menu/title.png")
-local pauseImage = lg.newImage(imgF.."pause.png")
+local titleImage = lg.newImage(imgF.."menu/main/title.png")
+local pauseImage = lg.newImage(imgF.."menu/pause/pause.png")
 
 materials = {}
 
@@ -387,13 +386,13 @@ local function getTileAt(x, z)
     return col and col[z]
 end
 
-local function getSafeSpawnY(x, z)
+function getSafeSpawnY(x, z)
     local tile = getTileAt(x, z)
     if not tile then return 5 end
     return (tile.curHeight or tile.height or 0) + 1.5
 end
 
-local function refreshWorldList()
+function refreshWorldList()
     worldList = {}
     local items = love.filesystem.getDirectoryItems(Mapsave.saveFolder)
     for _, name in ipairs(items) do
@@ -413,7 +412,7 @@ local function resetWorldFromMods()
     updateTileMeshes(true)
 end
 
-local function createNewWorld(name)
+function createNewWorld(name)
     local nm = name or ("World_" .. tostring(os.time()))
     regenerateMap(bh, bw, mapSeed)
     Mapsave.save(baseplateTiles, materials, nm)
@@ -445,7 +444,7 @@ local function createNewWorld(name)
     updateTileMeshes(true)
     gamestate = "game"
 end
-local function loadWorld(name)
+function loadWorld(name)
     if not name then return end
     local loaded, loadedTileGrid = Mapsave.load(materials, nil, name)
     if loaded then
@@ -537,6 +536,9 @@ local DIRT_TO_GRASS_TIME = 30
 
 --Blocks.baseTiles = baseplateTiles
 local preloadedTiles = {}
+local preloadedTileCount = 0
+local preloadedTerrainBatches = {}
+local preloadedTerrainBatchCount = 0
 function updateTileMeshes(force)
     if not force and math.abs(camera.x - lastCamX) < 0.1 and math.abs(camera.z - lastCamZ) < 0.1 then
         return
@@ -559,8 +561,9 @@ function updateTileMeshes(force)
             end
         end
     end
-    preloadedTiles = verts.generate(tilesToRender, camera, renderDistanceSq, tileGrid, materials)
-    verts.ensureAllMeshes(preloadedTiles, materials.grass or materials.waterSmall)
+    local quads = verts.generate(tilesToRender, camera, renderDistanceSq, tileGrid, materials)
+    preloadedTiles, preloadedTileCount, preloadedTerrainBatches, preloadedTerrainBatchCount =
+        verts.buildBatches(quads, materials.grass or materials.waterSmall)
 end
 
 local baseScale = 3
@@ -575,23 +578,27 @@ local function drawWithStencil(objX, objY, objZ, img, flip, scaleX, scaleY, rota
 
     local sx, sy, z = camera:project3D(objX, objY + (yOffset or -0.04), objZ)
     if not sx or z <= 0 then return end
-
     local base = (camera._f / z) * (baseScale / 1.25)
-
-    local sxScale = base * (scaleX or 1)
-    local syScale = base * (scaleY or 1)
+    local targetScaleX = base * (scaleX or 1)
+    local targetScaleY = base * (scaleY or 1)
+    local w, h = img:getDimensions()
+    
+    local pixelWidth  = math.max(1, math.floor(w * targetScaleX + 0.5))
+    local pixelHeight = math.max(1, math.floor(h * targetScaleY + 0.5))
+    local sxScale = pixelWidth / w
+    local syScale = pixelHeight / h
 
     if flip then
         sxScale = -sxScale
     end
 
-    local w, h = img:getDimensions()
     local textureMul = nightCycle.getTextureMultiplier() or {1,1,1}
 
     lg.push("all")
-    lg.setDepthMode("lequal", true)
+    lg.setDepthMode("lequal", false)
+    
     lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
-    lg.draw(img, sx, sy, rotation or 0, sxScale, syScale, w / 2, h)
+    lg.draw(img, math.floor(sx + 0.5), math.floor(sy - 1.5), rotation or 0, sxScale, syScale, w / 2, h)
     lg.pop()
 end
 
@@ -636,6 +643,13 @@ local function isCursorOverInteractive(mx, my)
 end
 
 function revealUnderground(tile)
+    if tile.textureName and string.find(tile.textureName, "grass") then
+        local nextMatName = (math.random() > 0.12) and "dirt" or "dirt_clay"
+        tile.texture = materials[nextMatName]
+        tile.textureName = nextMatName
+        return
+    end
+
     if not tile or not tile.subsurface or #tile.subsurface == 0 then
         tile.texture = materials.stone
         tile.textureName = "stone"
@@ -706,17 +720,16 @@ end
 
 local function tillTile(tile)
     if not tile or tile.isAir then return end
-    local matName
-    for k,v in pairs(materials) do
-        if v == tile.texture then matName = k break end
-    end
+    local matName = tile.textureName
     if not matName then return end
 
-    if matName == "grassNormal" or matName == "grassHot" or matName == "grassCold" or matName == "dirt" then
+    if matName == "grassNormal" or matName == "grassHot" or matName == "grassCold" or matName == "grassRainforest" or matName == "dirt" then
         tile.texture = materials.farmland
+        tile.textureName = "farmland"
         updateTileMeshes(true)
     elseif matName == "grassNormal" then
         tile.texture = materials.dirt
+        tile.textureName = "dirt"
         updateTileMeshes(true)
     end
 end
@@ -728,15 +741,19 @@ local function scheduleDirt(tile)
 end
 
 local function updateDirtToGrass(dt)
-    for _, tile in ipairs(baseplateTiles) do
-        if tile.texture == materials.dirt and (tile.height == tile.curHeight or tile.subsurface[1] == "dirt") then
+    for i = 1, #baseplateTiles do
+        local tile = baseplateTiles[i]
+        if tile.textureName == "dirt" and (tile.height == tile.curHeight or (tile.subsurface and tile.subsurface[1] == "dirt")) then
             scheduleDirt(tile)
         end
     end
+    
     for tile, t in pairs(dirtTimers) do
         t = t - dt
         if t <= 0 then
-            tile.texture = getGrassForBiome(tile)
+            local newGrass = getGrassForBiome(tile)
+            tile.texture = newGrass
+            tile.textureName = biomeToTexture[tile.biome] or "grassNormal" 
             dirtTimers[tile] = nil
             updateTileMeshes(true)
         else
@@ -778,207 +795,204 @@ end
 
 function love.mousepressed(mx, my, button)
     if ModAPI.runHooks("onMousePressed", mx, my, button) then return end
-    if not pauseOpen and gamestate == "game" then
-        if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
-            return
+    if pauseOpen or gamestate ~= "game" then return end
+    
+    if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
+        return
+    end
+
+    Inventory:mousepressed(mx, my, button, itemTypes)
+    local slot = Inventory:getSelected()
+
+    if Crafting.open then
+        Crafting:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+        return
+    end
+
+    if Knapping.open then
+        Knapping.timer = (Knapping.timer or 0) + love.timer.getDelta()
+        if Knapping.timer >= 0.1 then
+            Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
         end
+        return
+    end
 
-        Inventory:mousepressed(mx, my, button, itemTypes)
-        local slot = Inventory:getSelected()
+    if Pottery.open then
+        Pottery:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+        return
+    end
 
-        if Crafting.open then
-            Crafting:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
-            return
-        end
+    local overInteractive = nil
 
-        if Knapping.open then
-            Knapping.timer = (Knapping.timer or 0) + love.timer.getDelta()
-            if Knapping.timer >= 0.1 then
-                Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
-            end
-            return
-        end
-
-        if Pottery.open then
-            Pottery:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
-            return
-        end
-
-        if button == 1 and slot and slot.type == "stone" and slot.count >= 2 and not isCursorOverInteractive(mx, my) and not Crafting.open then
-            if not Knapping.open then
+    if button == 1 and slot and slot.count >= 2 and not Crafting.open and not Pottery.open and not Knapping.open then
+        if slot.type == "stone" then
+            overInteractive = isCursorOverInteractive(mx, my)
+            if not overInteractive then
                 slot.count = slot.count - 1
+                Knapping.open = true
+                Knapping:resetGrid()
+                Knapping.timer = 0
+                if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+                return
             end
-            Knapping.open = true
-            Knapping:resetGrid()
-            Knapping.timer = 0
-            if slot.count <= 0 then
-                Inventory.items[Inventory.selectedSlot] = nil
+        elseif slot.type == "clay" then
+            if overInteractive == nil then overInteractive = isCursorOverInteractive(mx, my) end
+            if not overInteractive then
+                slot.count = slot.count - 1
+                Pottery.open = true
+                Pottery:resetGrid()
+                Pottery.timer = 0
+                if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+                return
+            end
+        end
+    end
+
+    if button == 2 and slot then
+        if slot.type == "stone_hoe" then
+            local tile = getTileUnderCursor(mx, my)
+            tillTile(tile)
+            damageSelectedItem(1)
+            return
+        elseif slot.type == "firestarter" then
+            local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+            if tile then
+                for i = 1, 10 do
+                    Particles.spawnSmoke(particlesImgs.smoke, cx, cy + 0.5, cz)
+                end
+                damageSelectedItem(1)
             end
             return
         end
-        if button == 2 then
-            local selected = Inventory:getSelected()
-            if selected and selected.type == "stone_hoe" then
-                local tile, cx, cy, cz = getTileUnderCursor(mx, my)
-                tillTile(tile)
-                damageSelectedItem(1)
-                return
+
+        local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+        ModAPI.runHooks("onItemUse", slot, tile, cx, cy, cz, button)
+        
+        local itemDef = itemTypes[slot.type]
+        if itemDef and itemDef.eatable then
+            ModAPI.runHooks("onEntityEat", countryball, itemDef)
+            if countryball.hunger < countryball.maxHunger then
+                countryball.hunger = min(countryball.hunger + 1, countryball.maxHunger)
+                slot.count = slot.count - 1
+                if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
             end
-            if selected and selected.type == "firestarter" then
-                local tile, cx, cy, cz = getTileUnderCursor(mx, my)
-                if tile then
-                    for i = 1, 10 do
-                        Particles.spawnSmoke(particlesImgs.smoke, cx, cy + 0.5, cz)
-                    end
-                    damageSelectedItem(1)
-                end
-                return
-            end
-            if selected then
-                ModAPI.runHooks("onItemUse", selected, getTileUnderCursor(mx, my), button)
-                local itemDef = itemTypes[selected.type]
-                if itemDef and itemDef.eatable then
-                    ModAPI.runHooks("onEntityEat", countryball, itemDef)
-                    if countryball.hunger < countryball.maxHunger then
-                        countryball.hunger = math.min(countryball.hunger + 1,countryball.maxHunger)
-                        selected.count = selected.count - 1
-                        if selected.count <= 0 then
-                            Inventory.items[Inventory.selectedSlot] = nil
-                        end
-                    end
+            return
+        end
+
+        if slot.type == "apple_seed" and tile and Props.plantAppleSeed(tile, cx, cz) then
+            slot.count = slot.count - 1
+            if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+            return
+        end
+    end
+    for i = #itemsOnGround, 1, -1 do
+        local item = itemsOnGround[i]
+        local sx, sy2, z2 = camera:project3D(item.x, item.y, item.z)
+        if sx and z2 > 0 then
+            local scale = (1 / z2) * 6
+            local img = ItemsModule.getItemImage(item.type)
+            if img and isMouseOnItem(mx, my, item, img, scale, sx, sy2) then
+                if Inventory:hasFreeSlot() or Inventory:canAddEvenIfFull(item.type, itemTypes) then
+                    Inventory:add(item.type, item.count, itemTypes, item.durability)
+                    ItemsModule.removeItem(i)
                     return
                 end
             end
-            if selected and selected.type == "apple_seed" then
-                local tile, cx, cy, cz = getTileUnderCursor(mx, my)
-                if tile and Props.plantAppleSeed(tile, cx, cz) then
-                    selected.count = selected.count - 1
-                    if selected.count <= 0 then
-                        Inventory.items[Inventory.selectedSlot] = nil
-                    end
-                end
-                return
-            end
         end
-        for i = #itemsOnGround, 1, -1 do
-            local item = itemsOnGround[i]
-            local sx, sy2, z2 = camera:project3D(item.x, item.y, item.z)
-            if sx and z2 > 0 then
-                local scale = (1 / z2) * 6
-                local img = ItemsModule.getItemImage(item.type)
-                if img and isMouseOnItem(mx, my, item, img, scale, sx, sy2) then
-                    if Inventory:hasFreeSlot() or Inventory:canAddEvenIfFull(item.type, itemTypes) then
-                        Inventory:add(item.type, item.count, itemTypes, item.durability)
-                        ItemsModule.removeItem(i)
-                        return
-                    end
-                end
-            end
-        end
-            local tile, cx, cy, cz, kind = getTileUnderCursor(mx, my)
-            if tile and button == 1 then
-                local selected = Inventory:getSelected()
-                local baseMultiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
-                local multiplier = ModAPI.runHooks("onCalculateToolPower", selected, baseMultiplier) or baseMultiplier
+    end
 
-                if kind == "block" then
-                    local block = tile
-                    local matName = block.type
-                    if not matName or unbreakableMaterials[matName] then return end
+    local tile, cx, cy, cz, kind = getTileUnderCursor(mx, my)
+    if tile then
+        local selected = Inventory:getSelected()
+        if button == 1 then
+            local baseMultiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
+            local multiplier = ModAPI.runHooks("onCalculateToolPower", selected, baseMultiplier) or baseMultiplier
 
-                    local maxDur = Blocks.durabilities[matName] or 3
-                    local br = Blocks.currentBreaking
-                    if br.tile ~= block then
-                        br.tile = block
-                        br.progress = 0
-                        br.max = maxDur
-                    else
-                        br.progress = br.progress + multiplier
-                        if br.progress >= br.max then
-                            ModAPI.runHooks("onBlockBreak", block, matName)
+            if kind == "block" then
+                local matName = tile.type
+                if not matName or unbreakableMaterials[matName] then return end
 
-                            local requiresTool = Blocks.requiresTool[matName]
-                            local correctTool = hasCorrectTool(selected, matName)
-
-                            if not requiresTool or correctTool then
-                                ItemsModule.dropItem(block.x, block.y + 1, block.z, matName, 1, nil, 0)
-                            end
-
-                            for i = #Blocks.placed, 1, -1 do
-                                if Blocks.placed[i] == block then
-                                    table.remove(Blocks.placed, i)
-                                    break
-                                end
-                            end
-
-                            br.tile = nil
-                            br.progress = 0
-                            damageSelectedItem(1)
-                        end
-                    end
+                local br = Blocks.currentBreaking
+                if br.tile ~= tile then
+                    br.tile = tile
+                    br.progress = 0
+                    br.max = Blocks.durabilities[matName] or 3
                 else
-                    local matName
-                    for k,v in pairs(materials) do
-                        if v == tile.texture then matName = k break end
-                    end
-                    if not matName or unbreakableMaterials[matName] then return end
-
-                    local maxDur = Blocks.durabilities[matName] or 3
-                    local br = Blocks.currentBreaking
-                    if br.tile ~= tile then
-                        br.tile = tile
-                        br.progress = 0
-                        br.max = maxDur
-                    else
-                        br.progress = br.progress + multiplier
-                        if br.progress >= br.max then
-                            local matName = tile.textureName or nil
-
-                            local requiresTool = Blocks.requiresTool[matName]
-                            local correctTool = hasCorrectTool(selected, matName)
-
-                            if not requiresTool or correctTool then
-                                ItemsModule.dropItem(cx, cy+1, cz, matName, 1, nil, 0)
-                            end
-                            ModAPI.runHooks("onTileBreak", tile, matName, cx, cy, cz)
-
-                            breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
-                            br.tile = nil
-                            br.progress = 0
-                            damageSelectedItem(1)
+                    br.progress = br.progress + multiplier
+                    if br.progress >= br.max then
+                        ModAPI.runHooks("onBlockBreak", tile, matName)
+                        if not Blocks.requiresTool[matName] or hasCorrectTool(selected, matName) then
+                            ItemsModule.dropItem(tile.x, tile.y + 1, tile.z, matName, 1, nil, 0)
                         end
+
+                        for idx = #Blocks.placed, 1, -1 do
+                            if Blocks.placed[idx] == tile then
+                                table.remove(Blocks.placed, idx)
+                                break
+                            end
+                        end
+                        br.tile = nil
+                        br.progress = 0
+                        damageSelectedItem(1)
+                    end
+                end
+            else
+                local matName = tile.textureName
+                if not matName or unbreakableMaterials[matName] then return end
+
+                local br = Blocks.currentBreaking
+                if br.tile ~= tile then
+                    br.tile = tile
+                    br.progress = 0
+                    br.max = Blocks.durabilities[matName] or 3
+                else
+                    br.progress = br.progress + multiplier
+                    if br.progress >= br.max then
+                        if not Blocks.requiresTool[matName] or hasCorrectTool(selected, matName) then
+                            if matName == "dirt_clay" then
+                                ItemsModule.dropItem(cx + 0.5, cy + 1, cz, "dirt", 1, nil, 0)
+                                ItemsModule.dropItem(cx, cy + 1, cz, "clay", 1, nil, 0)
+                            else
+                                ItemsModule.dropItem(cx, cy + 1, cz, matName, 1, nil, 0)
+                            end
+                        end
+                        ModAPI.runHooks("onTileBreak", tile, matName, cx, cy, cz)
+
+                        breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
+                        br.tile = nil
+                        br.progress = 0
+                        damageSelectedItem(1)
                     end
                 end
             end
-        if button == 2 then
-            local selected = Inventory:getSelected()
-            local hitObj, cx, cy, cz, kind = getTileUnderCursor(mx, my, 20)
-            if hitObj and selected and itemTypes[selected.type] and itemTypes[selected.type].toolType == "axe" and kind == "block" and hitObj.type == "oak" then
-                hitObj.type = "wood_planks"
-                hitObj.texture = materials.wood_planks or materials.stone
+        elseif button == 2 and selected then
+            if itemTypes[selected.type] and itemTypes[selected.type].toolType == "axe" and kind == "block" and tile.type == "oak" then
+                tile.type = "wood_planks"
+                tile.texture = materials.wood_planks or materials.stone
+                tile.textureName = "wood_planks"
                 damageSelectedItem(1)
                 return
             end
-            if selected and blockPlacables[selected.type] then
-                if hitObj then
-                    local newX, newY, newZ
-                    if kind == "block" then
-                        local dx, dy, dz = cx - hitObj.x, cy - hitObj.y, cz - hitObj.z
-                        if math.abs(dy) > math.abs(dx) and math.abs(dy) > math.abs(dz) then
-                            newX, newY, newZ = hitObj.x, hitObj.y + (dy > 0 and 1 or -1), hitObj.z
-                        elseif math.abs(dx) > math.abs(dy) and math.abs(dx) > math.abs(dz) then
-                            newX, newY, newZ = hitObj.x + (dx > 0 and 1 or -1), hitObj.y, hitObj.z
-                        else
-                            newX, newY, newZ = hitObj.x, hitObj.y, hitObj.z + (dz > 0 and 1 or -1)
-                        end
+            
+            if blockPlacables[selected.type] then
+                local newX, newY, newZ
+                if kind == "block" then
+                    local dx, dy, dz = cx - tile.x, cy - tile.y, cz - tile.z
+                    local absX, absY, absZ = abs(dx), abs(dy), abs(dz)
+                    if absY > absX and absY > absZ then
+                        newX, newY, newZ = tile.x, tile.y + (dy > 0 and 1 or -1), tile.z
+                    elseif absX > absY and absX > absZ then
+                        newX, newY, newZ = tile.x + (dx > 0 and 1 or -1), tile.y, tile.z
                     else
-                        newX, newY, newZ = math.floor(cx) + 0.5, math.floor(cy) + 0.5, math.floor(cz) + 0.5
+                        newX, newY, newZ = tile.x, tile.y, tile.z + (dz > 0 and 1 or -1)
                     end
-                    
-                    Blocks.place(newX, newY, newZ, selected.type)
-                    selected.count = selected.count - 1
-                    if selected.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+                else
+                    newX, newY, newZ = floor(cx) + 0.5, floor(cy) + 0.5, floor(cz) + 0.5
                 end
+                
+                Blocks.place(newX, newY, newZ, selected.type)
+                slot.count = slot.count - 1
+                if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
             end
         end
     end
@@ -1016,6 +1030,41 @@ end
 
 local pauseVolume = 0
 local fadeSpeed = 2
+
+function startClientGame()
+    MultiplayerMenu.shouldStartGame = nil
+
+    local seed = MultiplayerMenu.receivedSeed or os.time()
+    mapSeed = seed
+
+    regenerateMap(bh, bw, seed)
+
+    local sx, sz = math.floor(bw / 2), math.floor(bh / 2)
+
+    countryball.x = sx
+    countryball.z = sz
+    countryball.y = getSafeSpawnY(sx, sz)
+    countryball.health = countryball.maxHealth
+    countryball.hunger = countryball.maxHunger
+
+    gamestate = "game"
+end
+function startHostGame()
+    MultiplayerMenu.shouldStartGame = nil
+    refreshWorldList()
+    local mpWorldName = "MP_Host_World"
+    local worldExists = false
+    for _, name in ipairs(worldList) do
+        if name == mpWorldName then worldExists = true break end
+    end
+
+    if worldExists then
+        loadWorld(mpWorldName)
+    else
+        createNewWorld(mpWorldName)
+    end
+    MultiplayerMenu.mapSeed = mapSeed
+end
 function love.update(dt)
     local mx, my = love.mouse.getPosition()
     love.timer.sleep(0.001)
@@ -1032,10 +1081,16 @@ function love.update(dt)
     Console:installGlobalHooks()
     if visible_idk.cursor then love.mouse.setVisible(false) else love.mouse.setVisible(true) end
     SkinsMenu:update(dt)
+    MultiplayerMenu:update(dt)
+    if MultiplayerMenu.shouldStartGame == "host" then
+        startHostGame()
+    elseif MultiplayerMenu.shouldStartGame == "client" then
+        startClientGame()
+    end
     if gamestate == "credits" then
         CreditsMenu.update(dt)
     end
-    if gamestate == "menu" or gamestate == "options" or gamestate == "skins" or gamestate == "mods" then
+    if gamestate == "menu" or gamestate == "options" or gamestate == "skins" or gamestate == "mods" or gamestate == "multiplayer" then
         local dx = (mx / base_width - 0.5) * 6
         local dz = (my / base_height - 0.5) * 6
         menuTargetCamX = bw / 2 + dx + math.sin(love.timer.getTime() * 0.4) * 0.2
@@ -1063,8 +1118,8 @@ function love.update(dt)
 
         return
     end
-    local pauseSource = Audio.getSource("pause")
-    local mainSource = Audio.getSource("main")
+    local pauseSource = Audio.getMusic("pause")
+    local mainSource = Audio.getMusic("main")
     if pauseSource then
         if pauseOpen then
             if mainSource and mainSource:isPlaying() then
@@ -1090,6 +1145,7 @@ function love.update(dt)
         nightCycle.update(dt)
         verts.setTime(nightCycle.time)
         Particles.updateSmoke(dt)
+        Achievement.update(dt)
         updateDirtToGrass(dt)
         local target = pauseOpen and 1 or 0
         pauseProgress = pauseProgress + (target - pauseProgress) * (1 - math.exp(-pauseSmooth * dt))
@@ -1173,6 +1229,8 @@ function love.update(dt)
                 Mapsave.saveBlocks(Blocks.placed, currentWorldName)
                 autosaveTimer = 0
             end
+            countryball.networkSync(MultiplayerMenu, dt)
+            countryball.updateRemotePlayers(dt)
         end
     else
         if mainSource and mainSource:isPlaying() then mainSource:stop() end
@@ -1238,41 +1296,51 @@ function drawTiles()
         lg.setColor(1, 1, 1, 1)
         lg.setDepthMode("lequal", true)
     end
-    for i = 1, #preloadedTiles do
-        local e = preloadedTiles[i]
-        if e.mesh then
-            lg.setColor(1, 1, 1, 1)
-            lg.draw(e.mesh)
-        end
-    end
-    local function getDistanceSq(obj)
-        if not obj then return 0 end
-        local ox, oy, oz = obj.x or 0, obj.y or 0, obj.z or 0
-        local dx, dy, dz = ox - camera.x, oy - camera.y, oz - camera.z
-        return dx*dx + dy*dy + dz*dz
-    end
-
     local renderQueue = {}
     local blockEntries = Blocks.generate(camera, renderDistanceSq)
+    for i = 1, preloadedTileCount do
+        local t = preloadedTiles[i]
+        if t.mesh then
+            renderQueue[#renderQueue + 1] = { dist = t.dist, kind = "tile", obj = t }
+        end
+    end
+    for i = 1, preloadedTerrainBatchCount do
+        local b = preloadedTerrainBatches[i]
+        renderQueue[#renderQueue + 1] = { dist = b.dist, kind = "terrainBatch", obj = b }
+    end
+    local function getObjDepth(obj)
+        if not obj then return nil end
+        local ox, oy, oz = obj.x or 0, obj.y or 0, obj.z or 0
+        local sx, sy, sz = camera:project3D(ox, oy, oz)
+        if not sx or not sz or sz <= 0 then return nil end
+        return sz
+    end
 
     local function addToQueue(obj, kind)
-        table.insert(renderQueue, {
-            dist = getDistanceSq(obj),
-            kind = kind,
-            obj = obj
-        })
+        local d = getObjDepth(obj)
+        if d then
+            renderQueue[#renderQueue + 1] = { dist = d, kind = kind, obj = obj }
+        end
     end
     for _, p in ipairs(Props.props) do addToQueue(p, "prop") end
     for _, mob in ipairs(mobs.entities) do addToQueue(mob, "mob") end
     for _, item in ipairs(itemsOnGround) do addToQueue(item, "item") end
     addToQueue(countryball, "player")
+    for _, rp in pairs(countryball.remotePlayers) do addToQueue(rp, "remotePlayer") end
     for i = 1, #blockEntries do addToQueue(blockEntries[i], "block") end
+
     table.sort(renderQueue, function(a, b)
         return a.dist > b.dist
     end)
+
     for _, entry in ipairs(renderQueue) do
         local e = entry.obj
-        if entry.kind == "block" then
+        if entry.kind == "tile" then
+            lg.setColor(1, 1, 1, 1)
+            lg.draw(e.mesh)
+        elseif entry.kind == "terrainBatch" then
+            verts.drawTerrainMesh(e.mesh)
+        elseif entry.kind == "block" then
             lg.setColor(1, 1, 1, 1)
             for _, faceVerts in ipairs(e.faces) do
                 lg.polygon("fill", faceVerts)
@@ -1284,13 +1352,17 @@ function drawTiles()
             drawWithStencil(e.x, e.y, e.z, img, false)
         elseif entry.kind == "player" then
             e.draw(drawWithStencil, Inventory, ItemsModule)
+        elseif entry.kind == "remotePlayer" then
+            local skinImages = countryball.getSkinImages(e.skin)
+            local img = e.currentFrame or (skinImages.idle and skinImages.idle[1])
+            if img then drawWithStencil(e.x, e.y, e.z, img, e.flip) end
         elseif entry.kind == "mob" then
-            mobs.draw(drawWithStencil)
+            mobs.draw(drawWithStencil, e)
         end
     end
 
     Particles.drawSmoke(drawWithStencil)
-    
+
     ModAPI.runHooks("draw")
     lg.setDepthMode("lequal", true)
 end
@@ -1337,6 +1409,7 @@ function mainGame()
         end
         lg.setColor(1,1,1,1)
     end
+    Achievement.draw()
 end
 
 local gradientWidth = base_width * 0.5
@@ -1368,8 +1441,6 @@ function menuScreen()
     local startY = (base_height - totalHeight) / 2
 
     for i, text in ipairs(menuItems) do
-        local anim = menuAnim[i]
-
         local col = (i-1) % maxPerRow
         local row = math.floor((i-1) / maxPerRow)
 
@@ -1443,6 +1514,9 @@ function love.draw()
     elseif gamestate == "credits" then
         drawTiles()
         CreditsMenu:draw()
+    elseif gamestate == "multiplayer" then
+        drawTiles()
+        MultiplayerMenu:draw()
     end
     Transition.draw(base_width, base_height)
     utils.drawTextWithBorder("FPS: "..love.timer.getFPS(), 10, 5)
@@ -1506,15 +1580,17 @@ function love.load()
     SkinsMenu.load()
     SkinsMenu.applySkin("countryball")
     ModsMenu.load()
+    MultiplayerMenu.load()
+    MultiplayerMenu.onReceive = function(data)
+        countryball.onNetworkData(data)
+    end
+    MultiplayerMenu.onDisconnected = function()
+        countryball.clearRemotePlayers()
+    end
+    MultiplayerMenu.mapSeed = mapSeed
     Audio.load()
 
-    gl.glEnable(GL.DEPTH_TEST)
-    gl.glEnable(GL.CULL_FACE)
-    gl.glCullFace(GL.BACK)
-    gl.glFrontFace(GL.CCW)
-
     updateTileMeshes(true)
-    lg.setDepthMode("lequal", true)
 end
 
 function switchSong(name)
@@ -1572,6 +1648,10 @@ function love.keypressed(key)
                 refreshWorldList()
                 Transition.startFade(0.5, function()
                     gamestate = "worldselect"
+                end)
+            elseif selected == "Multiplayer" then
+                Transition.startFade(0.5, function()
+                    gamestate = "multiplayer"
                 end)
             elseif selected == "Mods" then
                 Transition.startFade(0.5, function()
@@ -1660,7 +1740,7 @@ function love.keypressed(key)
             return
         end
         if key == "e" and not Knapping.open then Crafting:toggle() end
-        if key == "p" and not Knapping.open and not Crafting.open then Pottery:toggle() end
+        --if key == "p" and not Knapping.open and not Crafting.open then Pottery:toggle() end
         Inventory:keypressed(key, itemTypes)
 
         if key == "q" then healthBar:damageHealth(1) end
@@ -1697,6 +1777,14 @@ function love.keypressed(key)
                 gamestate = "menu"
             end)
         end
+    elseif gamestate == "multiplayer" then
+        if key == "escape" and not MultiplayerMenu:handlesEscape() then
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
+        else
+            MultiplayerMenu:keypressed(key)
+        end
     elseif gamestate == "mods" then
         ModsMenu:keypressed(key)
         ModAPI.reset()
@@ -1712,9 +1800,16 @@ function love.keypressed(key)
     end
 end
 
+function love.textinput(t)
+    if gamestate == "multiplayer" then
+        MultiplayerMenu:textinput(t)
+    end
+end
+
 function love.resize(w, h)
     camera:updateProjectionConstants(w, h)
 end
 
 function love.quit()
+    MultiplayerMenu:shutdown()
 end

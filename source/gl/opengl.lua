@@ -1,6 +1,20 @@
 local ffi = pcall(require, "ffi") and require("ffi") or nil
 local osname = love.system.getOS()
 local gl = nil
+local using_native = false
+
+local function call_gl(fn, ...)
+    if not gl or type(gl[fn]) ~= "function" then
+        return false
+    end
+
+    local ok, err = pcall(gl[fn], ...)
+    if not ok then
+        print(string.format("[OpenGL] %s failed: %s", fn, err))
+        return false
+    end
+    return true
+end
 
 if ffi then
     ffi.cdef[[
@@ -79,6 +93,10 @@ if ffi then
         print("[OpenGL] Warning: glEnable not found, fallback to LÖVE renderer.")
         gl = nil
     end
+
+    if gl then
+        using_native = true
+    end
 else
     print("[OpenGL] FFI not available; using LÖVE renderer.")
 end
@@ -120,14 +138,16 @@ local GL = {
     DYNAMIC_DRAW = 0x88E8
 }
 
-local function initGL()
-    love.window.setMode(0, 0, {
-        vsync = 1,
-        msaa = 0,
-        depth = 24,
-        stencil = true,
-        resizable = false,
-        highdpi = (osname == "OS X" or osname == "macOS"),
+local function initGL(opts)
+    opts = opts or {}
+
+    love.window.setMode(opts.width or 0, opts.height or 0, {
+        vsync = opts.vsync or 1,
+        msaa = opts.msaa or 0,
+        depth = opts.depth or 24,
+        stencil = opts.stencil ~= false,
+        resizable = opts.resizable or false,
+        highdpi = opts.highdpi or (osname == "OS X" or osname == "macOS"),
     })
 
     if gl then
@@ -143,6 +163,10 @@ local function initGL()
             pcall(gl.glHint, i, GL.FASTEST)
         end
 
+        love.graphics.setDepthMode("lequal", true)
+        love.graphics.setFrontFaceWinding("ccw")
+        --love.graphics.setBlendMode("alpha", "premultiplied")
+        love.graphics.setDefaultFilter("nearest", "nearest")
         print(string.format("[OpenGL] Native OpenGL context active (%s) with CULL_FACE (GL_BACK)", osname))
     else
         love.graphics.setDepthMode("lequal", true)
@@ -159,5 +183,8 @@ end
 return {
     init = initGL,
     gl = gl,
-    GL = GL
+    GL = GL,
+    isAvailable = function()
+        return using_native and gl ~= nil
+    end
 }

@@ -1,7 +1,8 @@
 local love = require "love"
 local lg = love.graphics
-local crafting_recipes = require("source.hud.crafting_recipes")
+local crafting_recipes = require("source.hud.recipes.crafting")
 local utils = require("source.utils")
+local Audio = require("source.audio")
 local Crafting = {}
 Crafting.open = false
 Crafting.anim = 0
@@ -16,7 +17,6 @@ Crafting.recipes = crafting_recipes.recipes
 Crafting.draggingSlot = nil
 Crafting.hoveredItem = nil
 Crafting.previewItem = nil
-Crafting.craftSound = love.audio.newSource("sounds/craft.ogg", "static")
 
 local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
 local function easeInOutExpo(t)
@@ -189,7 +189,7 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
             end
         end
 
-        love.audio.play(self.craftSound)
+        Audio.playSound("craft")
         self.craftedItem = self:checkRecipe()
         return
     end
