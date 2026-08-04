@@ -2,6 +2,7 @@ local m = math
 local floor, sqrt, min, max, abs = m.floor, m.sqrt, m.min, m.max, m.abs
 
 local collision = {}
+collision.isSlopePhysic = false
 
 function collision.checkAABB(a, b)
     if a.x + a.w <= b.x or a.x >= b.x + b.w then return false end
@@ -65,7 +66,10 @@ local function findTileForPosition(x, z, tileGrid)
     local col = tileGrid[gx]
     if col then
         local t = col[gz]
-        if t and (pointInTriangle(x, z, t[1], t[2], t[3]) or pointInTriangle(x, z, t[1], t[3], t[4])) then
+        if t
+        and t[1] and t[2] and t[3] and t[4]
+        and (pointInTriangle(x, z, t[1], t[2], t[3])
+            or pointInTriangle(x, z, t[1], t[3], t[4])) then
             return t
         end
     end
@@ -79,7 +83,10 @@ local function findTileForPosition(x, z, tileGrid)
             for oz = -1, 1 do
                 local t = checkCol[gz + oz]
                 if t then
-                    if pointInTriangle(x, z, t[1], t[2], t[3]) or pointInTriangle(x, z, t[1], t[3], t[4]) then
+                    if t
+                    and t[1] and t[2] and t[3] and t[4]
+                    and (pointInTriangle(x, z, t[1], t[2], t[3])
+                        or pointInTriangle(x, z, t[1], t[3], t[4])) then
                         return t
                     end
                     local cx = (t[1][1] + t[3][1]) * 0.5

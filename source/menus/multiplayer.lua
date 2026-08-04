@@ -21,6 +21,8 @@ local MultiplayerMenu = {
     statusMessage = "",
     statusTimer = 0,
     log = {},
+    localIPs = {},
+    connectElapsed = 0,
     onReceive = nil,
     onPeerConnect = nil,
     onPeerDisconnect = nil,
@@ -31,6 +33,47 @@ local function countPeers(peers)
     local n = 0
     for _ in pairs(peers) do n = n + 1 end
     return n
+end
+
+local function isLikelyVirtualLanIP(ip)
+    if ip:match("^10%.147%.") then return true end
+    if ip:match("^172%.2[0-9]%.") then return true end
+    if ip:match("^172%.3[01]%.") then return true end
+    if ip:match("^100%.6[4-9]%.") or ip:match("^100%.[7-9][0-9]%.") or ip:match("^100%.1[01][0-9]%.") then return true end
+    return false
+end
+
+local function getLocalIPs()
+    local ips = {}
+    local seen = {}
+    local function add(ip)
+        if ip and not seen[ip] and ip ~= "127.0.0.1" then
+            seen[ip] = true
+            table.insert(ips, { ip = ip, virtual = isLikelyVirtualLanIP(ip) })
+        end
+    end
+    local commands
+    if love and love.system and love.system.getOS() == "Windows" then
+        commands = { "ipconfig" }
+    else
+        commands = { "ifconfig 2>/dev/null", "ip -4 addr show 2>/dev/null" }
+    end
+
+    for _, cmd in ipairs(commands) do
+        local okp, handle = pcall(io.popen, cmd)
+        if okp and handle then
+            local out = handle:read("*a") or ""
+            handle:close()
+            for ip in out:gmatch("(%d+%.%d+%.%d+%.%d+)") do
+                if ip ~= "255.255.255.255" and not ip:match("^0%.") then
+                    add(ip)
+                end
+            end
+            if #ips > 0 then break end
+        end
+    end
+
+    return ips
 end
 
 local function serialize(t)
@@ -83,7 +126,7 @@ function MultiplayerMenu:startHost()
         return
     end
     local port = tonumber(self.portInput) or tonumber(DEFAULT_PORT)
-    local ok, host = pcall(enet.host_create, "*:"..port, 32, 2)
+    local ok, host = pcall(enet.host_create, "0.0.0.0:"..port, 32, 2)
     if not ok or not host then
         self:setStatus("Failed to host on port "..port)
         return
@@ -98,6 +141,25 @@ function MultiplayerMenu:startHost()
     self.mode = "hosting"
     self.log = {}
     self:addLog("Hosting on port "..port)
+
+    self.localIPs = getLocalIPs()
+    if #self.localIPs == 0 then
+        self:addLog("Share your IP (LAN, ZeroTier, etc) + port "..port)
+    else
+        local shownVirtual = false
+        for _, entry in ipairs(self.localIPs) do
+            if entry.virtual then
+                self:addLog("Share (virtual LAN): "..entry.ip..":"..port)
+                shownVirtual = true
+            end
+        end
+        if not shownVirtual then
+            for _, entry in ipairs(self.localIPs) do
+                self:addLog("Share: "..entry.ip..":"..port)
+            end
+        end
+    end
+
     self.shouldStartGame = "host"
 end
 
@@ -106,7 +168,7 @@ function MultiplayerMenu:startJoin()
         self:setStatus("Networking unavailable (enet failed to load)")
         return
     end
-    local address = self.ipInput
+    local address = self.ipInput:match("^%s*(.-)%s*$") -- trim
     if address == "" then
         self:setStatus("Enter an address to connect to")
         return
@@ -129,8 +191,11 @@ function MultiplayerMenu:startJoin()
     self.isServer = false
     self.localId = nil
     self.mode = "connecting"
+    self.connectElapsed = 0
     self.log = {}
     self:addLog("Connecting to "..address.."...")
+    self:addLog("(Make sure both sides are on the same ZeroTier network")
+    self:addLog(" and the host's port is reachable/allowed.)")
 end
 
 function MultiplayerMenu:disconnect()
@@ -153,6 +218,8 @@ function MultiplayerMenu:disconnect()
     self.isServer = false
     self.mode = "select"
     self.log = {}
+    self.localIPs = {}
+    self.connectElapsed = 0
 end
 
 function MultiplayerMenu:shutdown()
@@ -201,6 +268,15 @@ function MultiplayerMenu:update(dt)
     end
 
     if not self.host then return end
+
+    if self.mode == "connecting" then
+        self.connectElapsed = (self.connectElapsed or 0) + dt
+        if self.connectElapsed > 10 then
+            self:setStatus("Connection timed out. Check the IP/port, that the host is running, and any firewall (ZeroTier/router) blocking UDP.")
+            self:disconnect()
+            return
+        end
+    end
 
     local event = self.host:service(0)
     while event do
@@ -288,7 +364,7 @@ function MultiplayerMenu:textinput(t)
             self.portInput = self.portInput..t
         end
     elseif self.mode == "join_setup" then
-        if t:match("[%d%.:]") and #self.ipInput < 30 then
+        if t:match("[%w%.:%-]") and #self.ipInput < 48 then
             self.ipInput = self.ipInput..t
         end
     end
@@ -320,6 +396,16 @@ function MultiplayerMenu:draw()
         utils.drawTextWithBorder("Hosting on port "..self.portInput, w / 2 - 120, h / 2 - 50)
         utils.drawTextWithBorder("Players connected: "..self.peerCount, w / 2 - 120, h / 2 - 20)
         utils.drawTextWithBorder("[Esc] Stop Hosting", w / 2 - 100, h / 2 + 40)
+        if self.localIPs and #self.localIPs > 0 then
+            local y = h / 2 + 80
+            utils.drawTextWithBorder("Share one of these with friends:", w / 2 - 140, y)
+            for _, entry in ipairs(self.localIPs) do
+                y = y + 22
+                local label = entry.ip..":"..self.portInput
+                if entry.virtual then label = label.." (virtual LAN)" end
+                utils.drawTextWithBorder(label, w / 2 - 140, y)
+            end
+        end
     elseif self.mode == "connecting" then
         utils.drawTextWithBorder("Connecting to "..self.ipInput.."...", w / 2 - 130, h / 2 - 20)
         utils.drawTextWithBorder("[Esc] Cancel", w / 2 - 70, h / 2 + 40)

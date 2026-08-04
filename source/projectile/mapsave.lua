@@ -93,7 +93,7 @@ function Mapsave.load(materials, baseplateTiles, worldName)
         if v and v[1] and v[2] and v[3] and v[4] then
             local v1, v2, v3, v4 = v[1], v[2], v[3], v[4]
 
-            local textureName = t.texture
+            local textureName = t.textureName
             local resolvedTexture = defMat
             if materials and textureName then
                 resolvedTexture = materials[textureName] or defMat
@@ -173,21 +173,39 @@ function Mapsave.loadInventory(worldName)
     return loadJSON(getFilePath(worldName, "inventory.json"))
 end
 
-function Mapsave.saveBlocks(blocks, worldName)
-    if not blocks or next(blocks) == nil then
+function Mapsave.savePlacements(placements, worldName)
+    if not placements then
         return false
     end
     local data = {}
-    for i = 1, #blocks do
-        local b = blocks[i]
-        data[i] = { x = b.x, y = b.y, z = b.z, type = b.type }
+    for i = 1, #placements do
+        local p = placements[i]
+        data[i] = {
+            x = p.x, y = p.y, z = p.z,
+            type = p.type,
+            mode = p.mode, yaw = p.yaw,
+        }
     end
-    saveJSON(getFilePath(worldName, "blocks.json"), data)
+    return saveJSON(getFilePath(worldName, "placements.json"), data)
 end
 
-function Mapsave.loadBlocks(worldName)
-    return loadJSON(getFilePath(worldName, "blocks.json"))
+function Mapsave.loadPlacements(worldName)
+    local data = loadJSON(getFilePath(worldName, "placements.json"))
+    if not data then
+        --blocks are outdated but they still work ig
+        local legacy = loadJSON(getFilePath(worldName, "blocks.json"))
+        if not legacy then return nil end
+        for i = 1, #legacy do
+            legacy[i].mode = legacy[i].mode or "floor"
+            legacy[i].yaw = legacy[i].yaw or 0
+        end
+        return legacy
+    end
+    return data
 end
+
+Mapsave.saveBlocks = Mapsave.savePlacements
+Mapsave.loadBlocks = Mapsave.loadPlacements
 
 function Mapsave.saveProps(props, worldName)
     if not props or type(props) ~= "table" then

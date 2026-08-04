@@ -8,12 +8,36 @@ local ItemsModule = require("source.items")
 local utils = require("source.utils")
 local Inventory = require("source.hud.inv")
 local nightCycle = require("source.projectile.night_cycle")
+local Particles = require("source.projectile.particles")
+local hitParticleOpts = {
+    radius = 0.05,
+    speedMin = 0.8,
+    speedMax = 1.5,
+    upwardBias = 0.15,
+    lifetimeMin = 0.20,
+    lifetimeMax = 0.45,
+    scaleMin = 0.08,
+    scaleMax = 0.16,
+    alpha = 1
+}
+local destroyParticleOpts = {
+    radius = 0.08,
+    speedMin = 1.8,
+    speedMax = 3.4,
+    upwardBias = 0.35,
+    lifetimeMin = 0.40,
+    lifetimeMax = 0.90,
+    scaleMin = 0.12,
+    scaleMax = 0.28,
+    alpha = 1
+}
 
 local im = "image/"
 local props = {}
 local shakingProps = {}
 local treeCutImg = lg.newImage(im.."plants/tree_cut.png")
 local occupiedTiles = {}
+local nextPropId = 1
 
 local treeStages = {
     { name = "planted", img = lg.newImage(im.."plants/tree/planted.png"), growTime = 20 },
@@ -317,6 +341,7 @@ local function spawnProps(num, mapWidth, mapDepth, getTileAt)
 
                     local baseY = ptile.height + (t.isWaterSurface and 0.04 or 0)
                     props[#props + 1] = {
+                        id = nextPropId,
                         typeIndex = idx,
                         x = px, z = pz, y = baseY, baseY = baseY,
                         health = t.maxHealth, maxHealth = t.maxHealth,
@@ -329,6 +354,7 @@ local function spawnProps(num, mapWidth, mapDepth, getTileAt)
                         surfaceOffset = t.surfaceOffset or 0,
                         isWaterSurface = t.isWaterSurface,
                     }
+                    nextPropId = nextPropId + 1
                     gridInsert(px, pz)
                     spawned = spawned + 1
                 end
@@ -346,16 +372,18 @@ local function plantAppleSeed(tile, x, z)
     occupiedTiles[key] = true
 
     props[#props + 1] = {
-        type = "growingTree", stage = 1, growTimer = treeStages[1].growTime,
+        id = nextPropId, type = "growingTree", stage = 1, growTimer = treeStages[1].growTime,
         x = floor(x) + 0.5, z = floor(z) + 0.5, y = tile.height,
         img = treeStages[1].img
     }
+    nextPropId = nextPropId + 1
     return true
 end
 
 local function clearProps()
     for i = #props, 1, -1 do props[i] = nil end
     occupiedTiles = {}
+    nextPropId = 1
 end
 
 local function loadSavedProps(savedProps)
@@ -367,16 +395,18 @@ local function loadSavedProps(savedProps)
         if p.type == "growingTree" then
             local stage = p.stage or 1
             local prop = {
-                type = "growingTree", stage = stage,
+                id = p.id or nextPropId, type = "growingTree", stage = stage,
                 growTimer = p.growTimer or (treeStages[stage] and treeStages[stage].growTime or 0),
                 x = p.x, y = p.y, z = p.z,
                 img = treeStages[stage] and treeStages[stage].img,
                 scale = p.scale or 1,
             }
+            nextPropId = max(nextPropId, prop.id + 1)
             props[#props + 1] = prop
             if prop.x and prop.z then occupiedTiles[utils.tileKey(prop.x, prop.z)] = true end
         else
             local prop = {
+                id = p.id or nextPropId,
                 typeIndex = p.typeIndex, x = p.x, y = p.y, z = p.z,
                 health = p.health, maxHealth = p.maxHealth,
                 shakeTimer = p.shakeTimer or 0, shakeOffsetX = p.shakeOffsetX or 0, shakeOffsetY = p.shakeOffsetY or 0,
@@ -384,6 +414,7 @@ local function loadSavedProps(savedProps)
                 bobTimer = p.bobTimer or 0, bobAmount = p.bobAmount or 0, radius = p.radius or 0.75,
                 surfaceOffset = p.surfaceOffset or 0, isWaterSurface = p.isWaterSurface,
             }
+            nextPropId = max(nextPropId, prop.id + 1)
             local t = propTypes[prop.typeIndex]
             if t then prop.img = (t.isTree and prop.isCut) and treeCutImg or t.img end
             props[#props + 1] = prop
@@ -521,6 +552,10 @@ local function handleMousePressed(mx, my)
                         if mx >= sx - w / 2 and mx <= sx + w / 2 and my >= sy - h and my <= sy then
                             local multiplier = selected and ItemsModule.getToolMultiplier(selected.type, t.bestTool) or 1
                             prop.health = prop.health - multiplier
+
+                            local debrisImg = prop.img or t.img or t.imgBottom
+                            Particles.spawnBurst(debrisImg, prop.x, prop.y + 0.5, prop.z, 3, hitParticleOpts)
+
                             if prop.shakeTimer <= 0 then
                                 prop.shakeTimer = 0.07
                                 shakingProps[#shakingProps + 1] = prop
@@ -530,6 +565,7 @@ local function handleMousePressed(mx, my)
                                 if random() < 0.1 then ItemsModule.dropItem(prop.x, prop.y + 0.75, prop.z, "apple") end
                                 if random() < 0.1 then ItemsModule.dropItem(prop.x, prop.y + 0.75, prop.z, "green_apple") end
                             end
+                            local wasRemoved = false
                             if prop.health <= 0 then
                                 if t.isTree and not prop.img then
                                     prop.img = treeCutImg
@@ -546,7 +582,22 @@ local function handleMousePressed(mx, my)
                                             end
                                         end
                                     end
+                                    Particles.spawnBurst(debrisImg, prop.x, prop.y + 0.5, prop.z, 10, destroyParticleOpts)
+
                                     table.remove(props, i)
+                                    wasRemoved = true
+                                end
+                            end
+
+                            if prop.id and MultiplayerMenu and MultiplayerMenu.isActive and MultiplayerMenu:isActive() then
+                                if wasRemoved then
+                                    MultiplayerMenu:send({sys = "prop_remove", id = prop.id})
+                                else
+                                    MultiplayerMenu:send({
+                                        sys = "prop_hit", id = prop.id,
+                                        health = prop.health,
+                                        cut = (prop.img == treeCutImg) and 1 or 0,
+                                    })
                                 end
                             end
                             return true
@@ -559,6 +610,39 @@ local function handleMousePressed(mx, my)
     return false
 end
 
+local function findPropById(id)
+    for i = 1, #props do
+        if props[i].id == id then return props[i], i end
+    end
+    return nil
+end
+
+local function applyNetworkHit(id, health, cut)
+    local prop = findPropById(id)
+    if not prop then return end
+    prop.health = health
+    if cut then prop.img = treeCutImg end
+    if prop.shakeTimer <= 0 then
+        prop.shakeTimer = 0.07
+        shakingProps[#shakingProps + 1] = prop
+    end
+
+    local t = propTypes[prop.typeIndex]
+    local debrisImg = prop.img or (t and (t.img or t.imgBottom))
+    Particles.spawnBurst(debrisImg, prop.x, prop.y + 0.5, prop.z, 3, hitParticleOpts)
+end
+
+local function applyNetworkRemove(id)
+    local prop, i = findPropById(id)
+    if not prop then return end
+
+    local t = propTypes[prop.typeIndex]
+    local debrisImg = prop.img or (t and (t.img or t.imgBottom))
+    Particles.spawnBurst(debrisImg, prop.x, prop.y + 0.5, prop.z, 10, destroyParticleOpts)
+
+    table.remove(props, i)
+end
+
 return {
     spawnProps = spawnProps,
     updateProps = updateProps,
@@ -567,5 +651,7 @@ return {
     plantAppleSeed = plantAppleSeed,
     loadSavedProps = loadSavedProps,
     clearProps = clearProps,
+    applyNetworkHit = applyNetworkHit,
+    applyNetworkRemove = applyNetworkRemove,
     props = props
 }

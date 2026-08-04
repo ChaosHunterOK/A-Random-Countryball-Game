@@ -22,7 +22,7 @@ function ModsMenu.load()
     ModsMenu.mods = {}
     ModsMenu.loadState()
 
-    local ModAPI = require("source.mod_api")
+    local ModAPI = require("source.apis.mod_api")
     ModAPI.reset()
 
     local entries = love.filesystem.getDirectoryItems(MODS_FOLDER)
@@ -68,7 +68,7 @@ function ModsMenu.saveState()
 end
 
 function ModsMenu.reloadMods()
-    local ModAPI = require("source.mod_api")
+    local ModAPI = require("source.apis.mod_api")
     ModAPI.reset()
     for _, modName in ipairs(ModsMenu.mods) do
         if ModsMenu.enabled[modName] then
@@ -81,13 +81,13 @@ function ModsMenu.toggle(modName)
     ModsMenu.enabled[modName] = not ModsMenu.enabled[modName]
     ModsMenu.saveState()
     ModsMenu.reloadMods()
-    local ModAPI = require("source.mod_api")
+    local ModAPI = require("source.apis.mod_api")
     ModAPI.needsWorldReset = true
 end
 
 function ModsMenu.loadMod(modName)
     local modPath = MODS_FOLDER .. "/" .. modName
-    local ModAPI = require("source.mod_api")
+    local ModAPI = require("source.apis.mod_api")
     local ok, err = pcall(function() ModAPI.loadMod(modPath) end)
     if not ok then
         print("[MODS] Error loading mod:", err)

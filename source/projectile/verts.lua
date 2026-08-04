@@ -1,11 +1,10 @@
 local ffi = require "ffi"
 local love = require "love"
-local utils = require("source.utils")
+local utils = require"source.utils"
 local night = require "source.projectile.night_cycle"
 local lib3d = require "source.projectile.lib3d"
 local lg = love.graphics
 local m = math
-local base_width, base_height = 1000, 525
 local sqrt, sin, cos, pi, max, floor = m.sqrt, m.sin, m.cos, m.pi, m.max, m.floor
 local glOk, glcompat = pcall(require, "source.gl.opengles2")
 if not glOk then glcompat = nil end
@@ -99,10 +98,13 @@ local function projectQuadToBuf(camera, v1, v2, v3, v4, buf)
     local sx4, sy4, sz4 = camera:project3D(v4[1], v4[2], v4[3])
     if not sx4 then return false end
 
+    local screenW = camera.hw * 2
+    local screenH = camera.hh * 2
+
     if (sx1 < 0 and sx2 < 0 and sx3 < 0 and sx4 < 0) or
-       (sx1 > base_width and sx2 > base_width and sx3 > base_width and sx4 > base_width) or
+       (sx1 > screenW and sx2 > screenW and sx3 > screenW and sx4 > screenW) or
        (sy1 < 0 and sy2 < 0 and sy3 < 0 and sy4 < 0) or
-       (sy1 > base_height and sy2 > base_height and sy3 > base_height and sy4 > base_height) then
+       (sy1 > screenH and sy2 > screenH and sy3 > screenH and sy4 > screenH) then
         return false
     end
 
@@ -123,7 +125,6 @@ local neighborOffsets = {
 function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
     if not tiles or not camera then return {} end
     camera:updateProjectionConstants()
-
     local camX, camZ = camera.x, camera.z
     local uvU, uvV = 0, 0
     local timeVal = time
@@ -160,6 +161,10 @@ function Verts.generate(tiles, camera, renderDistanceSq, tileGrid, materials)
         if outCount >= MAX_QUADS then break end
 
         local tile = tiles[t]
+        if not tile or tile.isAir or not tile.texture then
+            goto continue
+        end
+
         local t1, t3 = tile[1], tile[3]
         local v1x, v1y, v1z = t1[1], t1[2], t1[3]
         local v3x, v3y, v3z = t3[1], t3[2], t3[3]

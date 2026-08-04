@@ -36,29 +36,55 @@ local SkinsMenu = require(menu.."skins")
 local ModsMenu = require(menu.."mods")
 local CreditsMenu = require(menu.."credits")
 MultiplayerMenu = require(menu.."multiplayer")
-local ModAPI = require(src.."mod_api")
+local ModAPI = require(src.."apis.mod_api")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
-local Mapsave = require(proj.."mapsave")
+Mapsave = require(proj.."mapsave")
 local Particles = require(proj.."particles")
 local skyBox = require(proj.."skybox")
 local nightCycle = require(proj.."night_cycle")
 local Audio = require(src.."audio")
 local Console = require(src.."console")
 local Transition = require("source.transition")
+local Map = require(proj.."map")
+local MultiplayerAPI = require(src.."apis.multiplayer_api")
+local Placements = require(proj.."placements")
 
 local visible_idk = {cursor = true, skyBox = false}
-local clamp, perlin = utils.clamp, utils.fastPerlin
+local clamp = utils.clamp
 
 local particlesImgs = {
     smoke = lg.newImage(imgF.."smoke.png"),
     fire = lg.newImage(imgF.."placeholder.png"),
 }
+local breakHitParticleOpts = {
+    radius = 0.05,
+    speedMin = 0.8,
+    speedMax = 1.5,
+    upwardBias = 0.15,
+    lifetimeMin = 0.20,
+    lifetimeMax = 0.45,
+    scaleMin = 0.08,
+    scaleMax = 0.16,
+    alpha = 1
+}
+
+local breakParticleOpts = {
+    radius = 0.08,
+    speedMin = 1.8,
+    speedMax = 3.4,
+    upwardBias = 0.35,
+    lifetimeMin = 0.40,
+    lifetimeMax = 0.90,
+    scaleMin = 0.12,
+    scaleMax = 0.28,
+    alpha = 1
+}
 
 local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
-local chunkCfg = {size = 8, radius = 6}
+local chunkCfg = Map.chunkCfg
 local base_width, base_height = camera.hw * 2, camera.hh * 2
 local renderDistance = chunkCfg.size * chunkCfg.radius
 local renderDistanceSq = renderDistance * renderDistance
@@ -130,266 +156,12 @@ function initializeMaterials()
     end
 end
 
-local Blocks = require(proj.."blocks")
-
-local tileGrid, baseplateTiles, heights = {}, {}, {}
-local mapSeed = os.time()
-
-local function setSeed(seed)
-    mapSeed = tonumber(seed) or os.time()
-    math.randomseed(mapSeed)
-    math.random(); math.random(); math.random()
-end
-
-local function getChunkCoord(v) return floor(v / chunkCfg.size) end
-
-function determineBiome(h, t, h2, volc, x, z)
-    local ctx = {height = h, temperature = t, humidity = h2, volcano = volc, x = x, z = z}
-
-    for id, biome in pairs(ModAPI.biomes) do
-        if biome.condition(ctx) then return id end
-    end
-    
-    if volc > 0.96 and h > 8 then return "Volcanic" end
-    if h > 9.5 then return "SnowPeak" end
-    if h < 0.8 then return "OceanDeep" end
-    if h < 1.8 then return "OceanShallow" end
-    if h < 2.2 and h2 > 0.6 then return "Lake" end
-    
-    if t > 0.5 and h2 < 0.25 then 
-        if h2 < 0.08 then return "GarnetDesert" end 
-        if h2 < 0.15 then return "GypsumDesert" end
-        if t > 0.7 then return "OlivineDesert" end
-        return "Desert"
-    end
-    
-    if h < 2.3 then return "Beach" end
-    
-    if h > 6.0 and h2 < 0.2 then return "Canyon" end
-
-    if h < 7.0 then
-        if t < -0.2 then
-            return "Tundra"
-        end
-        if t > 0.45 and h2 > 0.55 then
-            return "Rainforest"
-        end
-        if t > 0.25 and h2 < 0.45 then
-            return "Savanna"
-        end
-        if h2 > 0.60 then
-            return "Forest"
-        end
-        if h2 > 0.35 then
-            return "Grassland"
-        end
-
-        return "Plains"
-    end
-
-    return "Highlands"
-end
-
-local biomeToTexture = {
-    OceanDeep = "waterDeep",
-    OceanShallow = "waterMedium",
-    Beach = "sandNormal",
-    Desert = "sandNormal",
-    GypsumDesert = "sandGypsum",
-    GarnetDesert = "sandGarnet",
-    OlivineDesert = "sandOlivine",
-    Lake = "waterSmall",
-    Canyon = "shale",
-    Plains = "grassNormal",
-    Grassland = "grassNormal",
-    Forest = "grassNormal",
-    Savanna = "grassHot",
-    Tundra = "grassCold",
-    Rainforest = "grassRainforest",
-    Highlands = "stone",
-    SnowPeak = "snow",
-    Volcanic = "pumice",
-}
-local C_SCALE = 0.04
-local C_BIOME_SCALE = 0.012
-local C_VOLCANO_NOISE_SCALE = 0.04
-local C_VOLCANO_H_NOISE = 0.05
-local C_CAVE_MASK_NOISE = 0.09
-local C_CONTINENTALNESS = 0.003
-local C_EROSION = 0.010
-local C_PEAKS = 0.015
-local C_RIVER = 0.004
-local C_LAKE = 0.020
-local C_VALLEY = 0.008
-local C_MOUNTAINS = 0.006
-local C_CLIFF = 0.03
-local C_PLATEAU = 0.005
-
-local function getFractalNoise(x, z, octaves, persistence, scale)
-    local total = 0
-    local frequency = scale
-    local amplitude = 1
-    local maxValue = 0
-    for i = 1, octaves do
-        total = total + perlin(x * frequency, z * frequency) * amplitude
-        maxValue = maxValue + amplitude
-        amplitude = amplitude * persistence
-        frequency = frequency * 2
-    end
-    return total / maxValue
-end
-
-local function getBiomeNoise(x, z)
-    return
-        perlin(x * C_BIOME_SCALE, z * C_BIOME_SCALE),
-        perlin(x * C_BIOME_SCALE * 0.6, z * C_BIOME_SCALE * 0.6 + 200),
-        perlin(x * C_BIOME_SCALE * 1.2 + 400, z * C_BIOME_SCALE * 1.2 + 400),
-        perlin(x * C_VOLCANO_NOISE_SCALE + 1000, z * C_VOLCANO_NOISE_SCALE + 1000)
-end
-
-function createBaseplate(width, depth, seed, formatType)
-    formatType = formatType or "normal"
-    setSeed(seed)
-
-    local nx, nz = width + 1, depth + 1
-    local totalPoints = nx * nz
-    local heights_buf = ffi.new("double[?]", totalPoints)
-
-    local function h_index(x, z) return x * nz + z end
-    local function set_h(x, z, v) heights_buf[h_index(x, z)] = v end
-    local function get_h(x, z) 
-        if x < 0 or x >= nx or z < 0 or z >= nz then return 0 end
-        return heights_buf[x * nz + z]
-    end
-    if formatType == "flat" then
-        for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
-    else
-        local islands = {}
-        for i = 1, 12 do
-            islands[i] = {
-                cx = random(5, width - 5), 
-                cz = random(5, depth - 5),
-                radius = random(2, 6),
-                height = random(3, 8)
-            }
-        end
-
-        for z = 0, depth do
-            for x = 0, width do
-                local base = getFractalNoise(x, z, 3, 0.5, C_SCALE) * 8
-                local continentalness = getFractalNoise(x, z, 4, 0.55, C_CONTINENTALNESS)
-                local erosion = getFractalNoise(x+2000, z+2000, 4, 0.5, C_EROSION)
-                local peaks = getFractalNoise(x+4000, z+4000, 5, 0.45, C_PEAKS)
-                local valley = getFractalNoise(x+6000, z+6000, 3, 0.5, C_VALLEY)
-                local dx, dz = (x / width) - 0.5, (z / depth) - 0.5
-                local dist = math.sqrt(dx*dx + dz*dz) * 2
-                local mask = math.max(0, 1.2 - dist^1.5)
-                local h = (base - 2) * mask
-                for i = 1, #islands do
-                    local isl = islands[i]
-                    local distSq = (x - isl.cx)^2 + (z - isl.cz)^2
-                    if distSq < isl.radius^2 then
-                        h = h + isl.height * (1 - sqrt(distSq) / isl.radius)^1.2
-                    end
-                end
-                local volcanoNoise = perlin(x * C_VOLCANO_H_NOISE, z * C_VOLCANO_H_NOISE)
-                if volcanoNoise > 0.95 then h = h + 6 + (volcanoNoise - 0.95) * 10 end
-                local lakeNoise = getFractalNoise(x+12000,z+12000,3,0.5,C_LAKE)
-                local caveMask = perlin(x * C_CAVE_MASK_NOISE, z * C_CAVE_MASK_NOISE)
-                if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
-                local river = abs(getFractalNoise(x+9000,z+9000,4,0.5,C_RIVER))
-                if river < 0.04 then
-                    h = h - (4.0 * (1 - (river / 0.04))) 
-                end
-                if lakeNoise > 0.68 and erosion > 0.65 and continentalness > 0.45 then
-                    h = min(h, 1.6)
-                end
-                local mountainNoise = getFractalNoise(x + 15000, z + 15000, 5, 0.5, C_MOUNTAINS)
-                if mountainNoise > 0.45 then
-                    local strength = ((mountainNoise - 0.45) / 0.55)^2
-                    h = h + strength * 18
-                end
-                local cliff = perlin(x * C_CLIFF + 900, z * C_CLIFF + 900)
-                if cliff > 0.7 then
-                    h = floor(h + 0.5)
-                end
-                local plateau = getFractalNoise(x+18000,z+18000,4,0.5,C_PLATEAU)
-                if plateau > 0.65 then
-                    h = max(h,10)
-                    h = floor(h)
-                end
-                local ctx = {x = x, z = z, height = h}
-                for _, layer in ipairs(ModAPI.terrainLayers) do layer(ctx) end
-                set_h(x, z, ctx.height)
-            end
-        end
-    end
-    baseplateTiles = {}
-    tileGrid = {}
-    local tileChunks = {}
-    local idx = 1
-    for z = 0, depth - 1 do
-        for x = 0, width - 1 do
-            tileGrid[x] = tileGrid[x] or {}
-
-            local h1, h2 = get_h(x, z), get_h(x + 1, z)
-            local h3, h4 = get_h(x + 1, z + 1), get_h(x, z + 1)
-            local avgH = (h1 + h2 + h3 + h4) * 0.25
-            local bNoise, tNoise, hNoise, vNoise = getBiomeNoise(x, z)
-            local biomeID = determineBiome(avgH, tNoise, hNoise, vNoise, x, z)
-            local biomeDef = ModAPI.biomes[biomeID]
-            local texName
-            if biomeDef and biomeDef.material then
-                texName = biomeDef.material
-            else
-                texName = biomeToTexture[biomeID] or "grassNormal"
-            end
-            local detailNoise = perlin(x * 0.4, z * 0.4)
-            if biomeID == "Beach" and detailNoise > 0.4 then texName = "gravel" end
-
-            local tile = {
-                {x, h1, z}, {x + 1, h2, z}, {x + 1, h3, z + 1}, {x, h4, z + 1},
-                x = x, z = z, y = avgH, height = avgH, curHeight = avgH,
-                biome = biomeID,
-                textureName = texName,
-                texture = nil,
-                heights = {h1, h2, h3, h4},
-                chunkX = getChunkCoord(x),
-                chunkZ = getChunkCoord(z),
-                needsMesh = true
-            }
-            tile.texture = materials[tile.textureName] or materials.grassNormal
-
-            baseplateTiles[idx] = tile
-            tileGrid[x][z] = tile
-            local ck = tile.chunkX .. ":" .. tile.chunkZ
-            tileChunks[ck] = tileChunks[ck] or {}
-            table.insert(tileChunks[ck], idx)
-            ModAPI.runHooks("onTileGenerate", tile)
-
-            idx = idx + 1
-        end
-    end
-    baseplateTiles._tileChunks = tileChunks
-    if Blocks then Blocks.baseTiles = baseplateTiles end
-    heights = {}
-    for x = 0, width do
-        heights[x] = {}
-        for z = 0, depth do heights[x][z] = get_h(x, z) end
-    end
-end
-
-local function getTileAt(x, z)
-    x, z = floor(x), floor(z)
-    if x < 0 or z < 0 then return nil end
-    local col = tileGrid[x]
-    return col and col[z]
-end
-
-function getSafeSpawnY(x, z)
-    local tile = getTileAt(x, z)
-    if not tile then return 5 end
-    return (tile.curHeight or tile.height or 0) + 1.5
+local getTileAt = Map.getTileAt
+local getChunkCoord = Map.getChunkCoord
+local getSafeSpawnY = Map.getSafeSpawnY
+local biomeToTexture = Map.biomeToTexture
+local function regenerateMap(w, d, seed)
+    Map.regenerateMap(w, d, seed, materials, Placements)
 end
 
 function refreshWorldList()
@@ -402,22 +174,17 @@ function refreshWorldList()
     if #worldList == 0 then selectedWorldIndex = 0 else selectedWorldIndex = 1 end
 end
 
-local function regenerateMap(w, d, seed)
-    setSeed(seed)
-    createBaseplate(w, d, seed)
-end
-
 local function resetWorldFromMods()
-    regenerateMap(bh, bw, mapSeed)
+    regenerateMap(bh, bw, Map.mapSeed)
     updateTileMeshes(true)
 end
 
 function createNewWorld(name)
     local nm = name or ("World_" .. tostring(os.time()))
-    regenerateMap(bh, bw, mapSeed)
-    Mapsave.save(baseplateTiles, materials, nm)
+    regenerateMap(bh, bw, Map.mapSeed)
+    Mapsave.save(Map.baseplateTiles, materials, nm)
     currentWorldName = nm
-    --Blocks.baseTiles = baseplateTiles
+    --Placements.baseTiles = baseplateTiles
     
     local sx, sz = math.floor(bw/2), math.floor(bh/2)
     countryball.x = sx
@@ -435,10 +202,10 @@ function createNewWorld(name)
     Inventory.heldCount = 0
     Mapsave.saveInventory(Inventory, nm)
     
-    Blocks.placed = {}
+    Placements.placed = {}
     Props.clearProps()
     Props.spawnProps(550, bw, bh, getTileAt)
-    Mapsave.saveBlocks(Blocks.placed, nm)
+    Mapsave.savePlacements(Placements.placed, nm)
     Mapsave.saveProps(Props.props, nm)
     
     updateTileMeshes(true)
@@ -448,12 +215,12 @@ function loadWorld(name)
     if not name then return end
     local loaded, loadedTileGrid = Mapsave.load(materials, nil, name)
     if loaded then
-        baseplateTiles = loaded
-        tileGrid = loadedTileGrid
-        if not baseplateTiles._tileChunks then
+        Map.baseplateTiles = loaded
+        Map.tileGrid = loadedTileGrid
+        if not Map.baseplateTiles._tileChunks then
             local tileChunks = {}
             local chunkSize = chunkCfg.size or 4
-            for i, tile in ipairs(baseplateTiles) do
+            for i, tile in ipairs(Map.baseplateTiles) do
                 local cx, cz = tile.chunkX, tile.chunkZ
                 if cx == nil or cz == nil then
                     cx = math.floor((tile.x or 0) / chunkSize)
@@ -465,9 +232,9 @@ function loadWorld(name)
                 tileChunks[ck] = tileChunks[ck] or {}
                 table.insert(tileChunks[ck], i)
             end
-            baseplateTiles._tileChunks = tileChunks
+            Map.baseplateTiles._tileChunks = tileChunks
         end
-        --Blocks.baseTiles = baseplateTiles
+        --Placements.baseTiles = baseplateTiles
         currentWorldName = name
         
         local cbState = Mapsave.loadCountryball(name)
@@ -499,9 +266,9 @@ function loadWorld(name)
             Inventory.heldDurability = invData.heldDurability
         end
 
-        local savedBlocks = Mapsave.loadBlocks(name)
-        Blocks.placed = savedBlocks or {}
-        for _, b in ipairs(Blocks.placed) do
+        local savedPlacements = Mapsave.loadPlacements(name)
+        Placements.placed = savedPlacements or {}
+        for _, b in ipairs(Placements.placed) do
             b.texture = materials[b.type] or materials.stone
         end
 
@@ -534,7 +301,7 @@ end
 local dirtTimers = {}
 local DIRT_TO_GRASS_TIME = 30
 
---Blocks.baseTiles = baseplateTiles
+--Placements.baseTiles = baseplateTiles
 local preloadedTiles = {}
 local preloadedTileCount = 0
 local preloadedTerrainBatches = {}
@@ -551,17 +318,17 @@ function updateTileMeshes(force)
     for cz = camChunkZ - r, camChunkZ + r do
         for cx = camChunkX - r, camChunkX + r do
             local key = cx .. ":" .. cz
-            local tileIndices = baseplateTiles._tileChunks[key]
+            local tileIndices = Map.baseplateTiles._tileChunks[key]
             
             if tileIndices then
                 for i = 1, #tileIndices do
-                    local tile = baseplateTiles[tileIndices[i]]
+                    local tile = Map.baseplateTiles[tileIndices[i]]
                     table.insert(tilesToRender, tile)
                 end
             end
         end
     end
-    local quads = verts.generate(tilesToRender, camera, renderDistanceSq, tileGrid, materials)
+    local quads = verts.generate(tilesToRender, camera, renderDistanceSq, Map.tileGrid, materials)
     preloadedTiles, preloadedTileCount, preloadedTerrainBatches, preloadedTerrainBatchCount =
         verts.buildBatches(quads, materials.grass or materials.waterSmall)
 end
@@ -667,7 +434,7 @@ function revealUnderground(tile)
 end
 
 function breakTileAt(tileX, tileZ)
-    local col = tileGrid[tileX]
+    local col = Map.tileGrid[tileX]
     if not col then return end
     local tile = col[tileZ]
     if not tile then return end
@@ -686,6 +453,7 @@ function breakTileAt(tileX, tileZ)
     end
     tile.showSide = true
     updateTileMeshes(true)
+    MultiplayerAPI.sendTileBreak(tileX, tileZ, tile.isAir, tile.textureName, tile.height)
 end
 
 local unbreakableMaterials = {
@@ -695,7 +463,7 @@ local unbreakableMaterials = {
     lava = true,
 }
 
-local blockPlacables = {
+local placementPlacables = {
     oak = true,
     stone = true,
     dark_stone = true,
@@ -741,8 +509,8 @@ local function scheduleDirt(tile)
 end
 
 local function updateDirtToGrass(dt)
-    for i = 1, #baseplateTiles do
-        local tile = baseplateTiles[i]
+    for i = 1, #Map.baseplateTiles do
+        local tile = Map.baseplateTiles[i]
         if tile.textureName == "dirt" and (tile.height == tile.curHeight or (tile.subsurface and tile.subsurface[1] == "dirt")) then
             scheduleDirt(tile)
         end
@@ -789,17 +557,16 @@ local function hasCorrectTool(selected, matName)
     local itemDef = itemTypes[selected.type]
     if not itemDef or not itemDef.toolType then return false end
 
-    local required = Blocks.bestTools[matName]
+    local required = Placements.bestTools[matName]
     return required and itemDef.toolType == required
 end
 
 function love.mousepressed(mx, my, button)
     if ModAPI.runHooks("onMousePressed", mx, my, button) then return end
-    if pauseOpen or gamestate ~= "game" then return end
-    
-    if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
-        return
+    if gamestate == "options" then
+        OptMenu:mousepressed(mx, my, button, camera, chunkCfg, visible_idk)
     end
+    if pauseOpen or gamestate ~= "game" then return end
 
     Inventory:mousepressed(mx, my, button, itemTypes)
     local slot = Inventory:getSelected()
@@ -848,6 +615,10 @@ function love.mousepressed(mx, my, button)
         end
     end
 
+    if Props and Props.handleMousePressed and Props.handleMousePressed(mx, my) then
+        return
+    end
+
     if button == 2 and slot then
         if slot.type == "stone_hoe" then
             local tile = getTileUnderCursor(mx, my)
@@ -880,6 +651,7 @@ function love.mousepressed(mx, my, button)
         end
 
         if slot.type == "apple_seed" and tile and Props.plantAppleSeed(tile, cx, cz) then
+            MultiplayerAPI.sendPropPlant(cx, cz)
             slot.count = slot.count - 1
             if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
             return
@@ -912,25 +684,29 @@ function love.mousepressed(mx, my, button)
                 local matName = tile.type
                 if not matName or unbreakableMaterials[matName] then return end
 
-                local br = Blocks.currentBreaking
+                local br = Placements.currentBreaking
                 if br.tile ~= tile then
                     br.tile = tile
                     br.progress = 0
-                    br.max = Blocks.durabilities[matName] or 3
+                    br.max = Placements.durabilities[matName] or 3
                 else
                     br.progress = br.progress + multiplier
+                    Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.5, tile.z, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
                         ModAPI.runHooks("onBlockBreak", tile, matName)
-                        if not Blocks.requiresTool[matName] or hasCorrectTool(selected, matName) then
+                        if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
                             ItemsModule.dropItem(tile.x, tile.y + 1, tile.z, matName, 1, nil, 0)
                         end
 
-                        for idx = #Blocks.placed, 1, -1 do
-                            if Blocks.placed[idx] == tile then
-                                table.remove(Blocks.placed, idx)
+                        Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.5, tile.z, 10, breakParticleOpts)
+
+                        for idx = #Placements.placed, 1, -1 do
+                            if Placements.placed[idx] == tile then
+                                table.remove(Placements.placed, idx)
                                 break
                             end
                         end
+                        MultiplayerAPI.sendPlacementBreak(tile.x, tile.y, tile.z)
                         br.tile = nil
                         br.progress = 0
                         damageSelectedItem(1)
@@ -940,15 +716,16 @@ function love.mousepressed(mx, my, button)
                 local matName = tile.textureName
                 if not matName or unbreakableMaterials[matName] then return end
 
-                local br = Blocks.currentBreaking
+                local br = Placements.currentBreaking
                 if br.tile ~= tile then
                     br.tile = tile
                     br.progress = 0
-                    br.max = Blocks.durabilities[matName] or 3
+                    br.max = Placements.durabilities[matName] or 3
                 else
                     br.progress = br.progress + multiplier
+                    Particles.spawnBurst(materials[matName], cx, cy + 0.5, cz, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
-                        if not Blocks.requiresTool[matName] or hasCorrectTool(selected, matName) then
+                        if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
                             if matName == "dirt_clay" then
                                 ItemsModule.dropItem(cx + 0.5, cy + 1, cz, "dirt", 1, nil, 0)
                                 ItemsModule.dropItem(cx, cy + 1, cz, "clay", 1, nil, 0)
@@ -957,6 +734,8 @@ function love.mousepressed(mx, my, button)
                             end
                         end
                         ModAPI.runHooks("onTileBreak", tile, matName, cx, cy, cz)
+
+                        Particles.spawnBurst(materials[matName], cx, cy + 0.5, cz, 10, breakParticleOpts)
 
                         breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
                         br.tile = nil
@@ -974,23 +753,11 @@ function love.mousepressed(mx, my, button)
                 return
             end
             
-            if blockPlacables[selected.type] then
-                local newX, newY, newZ
-                if kind == "block" then
-                    local dx, dy, dz = cx - tile.x, cy - tile.y, cz - tile.z
-                    local absX, absY, absZ = abs(dx), abs(dy), abs(dz)
-                    if absY > absX and absY > absZ then
-                        newX, newY, newZ = tile.x, tile.y + (dy > 0 and 1 or -1), tile.z
-                    elseif absX > absY and absX > absZ then
-                        newX, newY, newZ = tile.x + (dx > 0 and 1 or -1), tile.y, tile.z
-                    else
-                        newX, newY, newZ = tile.x, tile.y, tile.z + (dz > 0 and 1 or -1)
-                    end
-                else
-                    newX, newY, newZ = floor(cx) + 0.5, floor(cy) + 0.5, floor(cz) + 0.5
-                end
-                
-                Blocks.place(newX, newY, newZ, selected.type)
+            if placementPlacables[selected.type] then
+                local newX, newY, newZ, mode, yaw = Placements.resolvePlacement(cx, cy, cz)
+
+                Placements.place(newX, newY, newZ, selected.type, mode, yaw)
+                MultiplayerAPI.sendPlacementPlace(newX, newY, newZ, selected.type)
                 slot.count = slot.count - 1
                 if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
             end
@@ -999,10 +766,15 @@ function love.mousepressed(mx, my, button)
 end
 
 function love.mousereleased(mx, my, button)
-    if not Crafting.open then
-        Inventory:mousereleased(mx, my, button, ItemsModule, countryball)
-    else
-        --Crafting:mousereleased(mx, my, button, Inventory)
+    if gamestate == "options" then
+        OptMenu:mousereleased(mx, my, button)
+    end
+    if gamestate == "game" then
+        if not Crafting.open then
+            Inventory:mousereleased(mx, my, button, ItemsModule, countryball)
+        else
+            --Crafting:mousereleased(mx, my, button, Inventory)
+        end
     end
 end
 
@@ -1031,40 +803,6 @@ end
 local pauseVolume = 0
 local fadeSpeed = 2
 
-function startClientGame()
-    MultiplayerMenu.shouldStartGame = nil
-
-    local seed = MultiplayerMenu.receivedSeed or os.time()
-    mapSeed = seed
-
-    regenerateMap(bh, bw, seed)
-
-    local sx, sz = math.floor(bw / 2), math.floor(bh / 2)
-
-    countryball.x = sx
-    countryball.z = sz
-    countryball.y = getSafeSpawnY(sx, sz)
-    countryball.health = countryball.maxHealth
-    countryball.hunger = countryball.maxHunger
-
-    gamestate = "game"
-end
-function startHostGame()
-    MultiplayerMenu.shouldStartGame = nil
-    refreshWorldList()
-    local mpWorldName = "MP_Host_World"
-    local worldExists = false
-    for _, name in ipairs(worldList) do
-        if name == mpWorldName then worldExists = true break end
-    end
-
-    if worldExists then
-        loadWorld(mpWorldName)
-    else
-        createNewWorld(mpWorldName)
-    end
-    MultiplayerMenu.mapSeed = mapSeed
-end
 function love.update(dt)
     local mx, my = love.mouse.getPosition()
     love.timer.sleep(0.001)
@@ -1077,20 +815,25 @@ function love.update(dt)
         resetWorldFromMods()
     end
     updateTileMeshes(true)
-    ModAPI.runHooks("update", dt, baseplateTiles, tileGrid)
+    ModAPI.runHooks("update", dt, Map.baseplateTiles, Map.tileGrid)
     Console:installGlobalHooks()
     if visible_idk.cursor then love.mouse.setVisible(false) else love.mouse.setVisible(true) end
     SkinsMenu:update(dt)
     MultiplayerMenu:update(dt)
     if MultiplayerMenu.shouldStartGame == "host" then
-        startHostGame()
+        MultiplayerAPI.startHostGame()
     elseif MultiplayerMenu.shouldStartGame == "client" then
-        startClientGame()
+        MultiplayerAPI.startClientGame()
     end
     if gamestate == "credits" then
         CreditsMenu.update(dt)
+        Audio.switchSong("credits")
+    elseif gamestate == "options" then
+        OptMenu:update(dt, camera, chunkCfg, visible_idk)
+        Audio.switchSong("menu")
     end
     if gamestate == "menu" or gamestate == "options" or gamestate == "skins" or gamestate == "mods" or gamestate == "multiplayer" then
+        Audio.switchSong("menu")
         local dx = (mx / base_width - 0.5) * 6
         local dz = (my / base_height - 0.5) * 6
         menuTargetCamX = bw / 2 + dx + math.sin(love.timer.getTime() * 0.4) * 0.2
@@ -1142,16 +885,17 @@ function love.update(dt)
         end
     end
     if gamestate == "game" then
-        nightCycle.update(dt)
-        verts.setTime(nightCycle.time)
-        Particles.updateSmoke(dt)
-        Achievement.update(dt)
-        updateDirtToGrass(dt)
+        Audio.switchSong("main")
         local target = pauseOpen and 1 or 0
         pauseProgress = pauseProgress + (target - pauseProgress) * (1 - math.exp(-pauseSmooth * dt))
         if pauseProgress < 1e-4 then pauseProgress = 0 end
         if 1 - pauseProgress < 1e-4 then pauseProgress = 1 end
         if not pauseOpen then
+            nightCycle.update(dt)
+            verts.setTime(nightCycle.time)
+            Particles.updateSmoke(dt)
+            Achievement:update(dt)
+            updateDirtToGrass(dt)
             local dtSpeed = camera.speed * dt
             local lki = love.keyboard.isDown
             if camera.free then
@@ -1188,7 +932,7 @@ function love.update(dt)
                 if lki("w") then camera.pitch = camera.pitch - sp end
                 if lki("s") then camera.pitch = camera.pitch + sp end
                 camera.pitch = clamp(camera.pitch, -1.2, 1.2)
-                countryball.update(dt, love.keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
+                countryball.update(dt, love.keyboard, Map.heights, materials, getTileAt, Placements, camera, healthBar)
                 local zoom = camera.zoom
                 local d, h = 12 / zoom, 15 / zoom
                 local yaw, pitch = camera.yaw, camera.pitch
@@ -1207,15 +951,15 @@ function love.update(dt)
             Knapping:update(dt)
             mobs.update(dt, getTileAt)
             local cue = Collision.updateEntity
-            cue(countryball, dt, tileGrid)
+            cue(countryball, dt, Map.tileGrid)
             for _, t in ipairs(itemsOnGround) do
-                cue(t, dt, tileGrid)
+                cue(t, dt, Map.tileGrid)
             end
             for _, p in ipairs(Props.props) do
-                cue(p, dt, tileGrid)
+                cue(p, dt, Map.tileGrid)
             end
             for _, e in ipairs(mobs.entities) do
-                cue(e, dt, tileGrid)
+                cue(e, dt, Map.tileGrid)
             end
             Inventory:update(dt)
             Crafting:update(dt)
@@ -1226,7 +970,7 @@ function love.update(dt)
             if autosaveTimer >= autosaveInterval and currentWorldName then
                 Mapsave.saveCountryball(countryball, currentWorldName)
                 Mapsave.saveInventory(Inventory, currentWorldName)
-                Mapsave.saveBlocks(Blocks.placed, currentWorldName)
+                Mapsave.savePlacements(Placements.placed, currentWorldName)
                 autosaveTimer = 0
             end
             countryball.networkSync(MultiplayerMenu, dt)
@@ -1239,10 +983,10 @@ end
 
 function getTileUnderCursor(mx, my, maxDistance)
     maxDistance = maxDistance or 100
-    local rdx, rdy, rdz = camera:getRay(mx, my, base_width, base_height)
+    local rdx, rdy, rdz = camera:getRay(mx, my, camera.hw * 2, camera.hh * 2)
 
     local px, py, pz = camera.x, camera.y, camera.z
-    local blocks = Blocks.placed
+    local Placements = Placements.placed
 
     local step = 0.05
     local prevTile, prevDiff = nil, nil
@@ -1251,8 +995,8 @@ function getTileUnderCursor(mx, my, maxDistance)
     while t <= maxDistance do
         local wx, wy, wz = px + rdx*t, py + rdy*t, pz + rdz*t
 
-        for i = 1, #blocks do
-            local block = blocks[i]
+        for i = 1, #Placements do
+            local block = Placements[i]
             if abs(wx - block.x) <= 0.5 and abs(wy - block.y) <= 0.5 and abs(wz - block.z) <= 0.5 then
                 return block, block.x, block.y, block.z, "block"
             end
@@ -1297,7 +1041,7 @@ function drawTiles()
         lg.setDepthMode("lequal", true)
     end
     local renderQueue = {}
-    local blockEntries = Blocks.generate(camera, renderDistanceSq)
+    local placementEntries = Placements.generate(camera, renderDistanceSq)
     for i = 1, preloadedTileCount do
         local t = preloadedTiles[i]
         if t.mesh then
@@ -1327,7 +1071,7 @@ function drawTiles()
     for _, item in ipairs(itemsOnGround) do addToQueue(item, "item") end
     addToQueue(countryball, "player")
     for _, rp in pairs(countryball.remotePlayers) do addToQueue(rp, "remotePlayer") end
-    for i = 1, #blockEntries do addToQueue(blockEntries[i], "block") end
+    for i = 1, #placementEntries do addToQueue(placementEntries[i], "placement") end
 
     table.sort(renderQueue, function(a, b)
         return a.dist > b.dist
@@ -1340,7 +1084,7 @@ function drawTiles()
             lg.draw(e.mesh)
         elseif entry.kind == "terrainBatch" then
             verts.drawTerrainMesh(e.mesh)
-        elseif entry.kind == "block" then
+        elseif entry.kind == "placement" then
             lg.setColor(1, 1, 1, 1)
             for _, faceVerts in ipairs(e.faces) do
                 lg.polygon("fill", faceVerts)
@@ -1367,6 +1111,36 @@ function drawTiles()
     lg.setDepthMode("lequal", true)
 end
 
+local function drawPlacementGhost(cx, cy, cz)
+    if pauseOpen or Crafting.open or Knapping.open or Pottery.open then return end
+
+    local slot = Inventory:getSelected()
+    if not slot or not placementPlacables[slot.type] then return end
+    if not cx then return end
+
+    local gx, gy, gz, mode, yaw, attached = Placements.resolvePlacement(cx, cy, cz)
+    local corners = Placements.getPanelCorners(gx, gy, gz, mode, yaw)
+
+    local pts = {}
+    for i = 1, 4 do
+        local c = corners[i]
+        local sx, sy, sz = camera:project3D(c[1], c[2], c[3])
+        if not sx or not sz or sz <= 0 then return end
+        pts[#pts + 1] = sx
+        pts[#pts + 1] = sy
+    end
+
+    if attached then
+        lg.setColor(0.3, 1, 0.4, 0.35)
+    else
+        lg.setColor(1, 1, 1, 0.3)
+    end
+    lg.polygon("fill", pts)
+    lg.setColor(1, 1, 1, 0.8)
+    lg.polygon("line", pts)
+    lg.setColor(1, 1, 1, 1)
+end
+
 function mainGame()
     lg.setDepthMode("lequal", true)
     drawTiles()
@@ -1380,6 +1154,7 @@ function mainGame()
             lg.circle("line", sx, sy, scale)
             lg.setColor(1, 1, 1, 1)
         end
+        drawPlacementGhost(cx, cy, cz)
     end
 
     healthBar:draw()
@@ -1390,7 +1165,7 @@ function mainGame()
     if not Knapping.open and not Pottery.open then
         Inventory:draw(itemTypes)
     end
-
+    Achievement:draw()
     if pauseProgress > 0 then
         local alpha = pauseProgress * 0.9
         lg.setColor(0, 0, 0, 0.5 * alpha)
@@ -1409,7 +1184,6 @@ function mainGame()
         end
         lg.setColor(1,1,1,1)
     end
-    Achievement.draw()
 end
 
 local gradientWidth = base_width * 0.5
@@ -1527,6 +1301,7 @@ function love.draw()
 end
 function love.load()
     love.window.setMode(base_width, base_height, {resizable=true, vsync=true, depth = 24, stencil = 8, msaa = 0, highdpi = false})
+    camera:updateProjectionConstants(love.graphics.getDimensions())
     Console:installGlobalHooks()
     print("i guess bro")
     love.window.setTitle("A Random Countryball Game")
@@ -1534,14 +1309,14 @@ function love.load()
     initializeMaterials()
     local loaded, loadedTileGrid, meta = Mapsave.load(materials)
     if loaded then
-        baseplateTiles = loaded
-        tileGrid = loadedTileGrid
-        mapSeed = meta.seed
+        Map.baseplateTiles = loaded
+        Map.tileGrid = loadedTileGrid
+        Map.mapSeed = meta.seed
         currentWorldName = "default"
-        if not baseplateTiles._tileChunks then
+        if not Map.baseplateTiles._tileChunks then
             local tileChunks = {}
             local chunkSize = chunkCfg.size or 4
-            for i, tile in ipairs(baseplateTiles) do
+            for i, tile in ipairs(Map.baseplateTiles) do
                 local cx, cz = tile.chunkX, tile.chunkZ
                 if cx == nil or cz == nil then
                     cx = math.floor((tile.x or 0) / chunkSize)
@@ -1553,10 +1328,10 @@ function love.load()
                 tileChunks[ck] = tileChunks[ck] or {}
                 table.insert(tileChunks[ck], i)
             end
-            baseplateTiles._tileChunks = tileChunks
+            Map.baseplateTiles._tileChunks = tileChunks
         end
-        Blocks.placed = Mapsave.loadBlocks(currentWorldName) or {}
-        for _, b in ipairs(Blocks.placed) do
+        Placements.placed = Mapsave.loadPlacements(currentWorldName) or {}
+        for _, b in ipairs(Placements.placed) do
             b.texture = materials[b.type] or materials.stone
         end
         local savedProps = Mapsave.loadProps(currentWorldName)
@@ -1567,7 +1342,7 @@ function love.load()
             Props.spawnProps(550, bw, bh, getTileAt)
         end
     else
-        createBaseplate(bw,bh)
+        Map.createBaseplate(bw, bh, Map.mapSeed, "normal", materials, Placements)
         Props.clearProps()
         Props.spawnProps(550, bw, bh, getTileAt)
     end
@@ -1581,13 +1356,24 @@ function love.load()
     SkinsMenu.applySkin("countryball")
     ModsMenu.load()
     MultiplayerMenu.load()
-    MultiplayerMenu.onReceive = function(data)
-        countryball.onNetworkData(data)
-    end
-    MultiplayerMenu.onDisconnected = function()
-        countryball.clearRemotePlayers()
-    end
-    MultiplayerMenu.mapSeed = mapSeed
+    MultiplayerAPI.init({
+        MultiplayerMenu = MultiplayerMenu,
+        Map = Map,
+        Placements = Placements,
+        Props = Props,
+        countryball = countryball,
+        materials = materials,
+        updateTileMeshes = updateTileMeshes,
+        refreshWorldList = refreshWorldList,
+        loadWorld = loadWorld,
+        createNewWorld = createNewWorld,
+        getSafeSpawnY = getSafeSpawnY,
+        regenerateMap = regenerateMap,
+        setGamestate = function(s) gamestate = s end,
+        worldList = worldList,
+        bw = bw,
+        bh = bh,
+    })
     Audio.load()
 
     updateTileMeshes(true)
@@ -1707,6 +1493,12 @@ function love.keypressed(key)
                 lastMouseX, lastMouseY = love.mouse.getPosition()
             end
         end
+        if key == "r" then
+            Placements.rotateMode()
+        end
+        if key == "t" then
+            Placements.rotateYaw()
+        end
         if pauseOpen then
             if key == "up" then
                 pauseSelected = pauseSelected - 1
@@ -1746,8 +1538,8 @@ function love.keypressed(key)
         if key == "q" then healthBar:damageHealth(1) end
 
         if key == "f5" then
-            Mapsave.save(baseplateTiles, materials, currentWorldName, {seed = mapSeed})
-            Mapsave.saveBlocks(Blocks.placed, currentWorldName)
+            Mapsave.save(Map.baseplateTiles, materials, currentWorldName, {seed = Map.mapSeed})
+            Mapsave.savePlacements(Placements.placed, currentWorldName)
             Mapsave.saveProps(Props.props, currentWorldName)
         end
 

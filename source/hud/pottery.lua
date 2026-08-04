@@ -1,6 +1,7 @@
 local love = require "love"
 local lg = love.graphics
 local Potteryping_recipes = require("source.hud.recipes.pottery")
+local Progression = require("source.progression")
 
 local Pottery = {}
 
@@ -111,6 +112,7 @@ function Pottery:mousepressed(mx, my, btn, inventory, itemTypes, ItemsModule, co
         else
             ItemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.craftedItem, 1)
         end
+        Progression:trackItemCrafted(self.craftedItem, itemTypes)
         Pottery.open = false
         self:resetGrid()
         self.craftedItem = nil

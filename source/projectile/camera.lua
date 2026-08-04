@@ -26,8 +26,9 @@ local clamp = require("source.utils").clamp
 local base_width, base_height = 1000, 525
 
 function camera:updateProjectionConstants(w, h)
-    w = w or base_width
-    h = h or base_height
+    w = w or self.screenW or base_width
+    h = h or self.screenH or base_height
+    self.screenW, self.screenH = w, h
     self.hw, self.hh = w * 0.5, h * 0.5
     self.aspect = w / h
     self.fovRad = math.rad(self.fov)

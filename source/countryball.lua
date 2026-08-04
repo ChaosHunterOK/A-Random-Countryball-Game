@@ -5,6 +5,8 @@ local floor, sqrt, abs, sin, cos, max, min = math.floor, math.sqrt, math.abs, ma
 
 local countryball = {
     x = 10, y = 10, z = 10,
+    velocityX = 0, velocityZ = 0,
+    acceleration = 18, deceleration = 6,
     health = 3,
     maxHealth = 3,
     speed = 4,
@@ -168,7 +170,7 @@ function countryball.clearRemotePlayers()
     countryball.remotePlayers = {}
 end
 
-function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks, camera, healthBar)
+function countryball.update(dt, keyboard, heights, materials, getTileAt, Placements, camera, healthBar)
     local dx, dz = 0, 0
     local moveX, moveZ = 0, 0
 
@@ -278,15 +280,34 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Blocks,
     else
         countryball.animation = "idle"
     end
-    countryball.x = countryball.x + dx
-    countryball.z = countryball.z + dz
 
     if moving then
         exhaustionIncrease = exhaustionIncrease + 0.1 * dt
         moveX, moveZ = moveX / len, moveZ / len
-        countryball.x = countryball.x + moveX * moveSpeed * dt
-        countryball.z = countryball.z + moveZ * moveSpeed * dt
+
+        local targetVX = moveX * moveSpeed
+        local targetVZ = moveZ * moveSpeed
+
+        local accel = math.min(1, countryball.acceleration * dt)
+
+        countryball.velocityX = countryball.velocityX + (targetVX - countryball.velocityX) * accel
+        countryball.velocityZ = countryball.velocityZ + (targetVZ - countryball.velocityZ) * accel
+    else
+        local friction = math.min(1, countryball.deceleration * dt)
+
+        countryball.velocityX = countryball.velocityX * (1 - friction)
+        countryball.velocityZ = countryball.velocityZ * (1 - friction)
+
+        if math.abs(countryball.velocityX) < 0.001 then
+            countryball.velocityX = 0
+        end
+        if math.abs(countryball.velocityZ) < 0.001 then
+            countryball.velocityZ = 0
+        end
     end
+
+    countryball.x = countryball.x + countryball.velocityX * dt
+    countryball.z = countryball.z + countryball.velocityZ * dt
 
     countryball.hungerExhaustion = countryball.hungerExhaustion + exhaustionIncrease
     if countryball.hungerExhaustion >= 3.0 then

@@ -5,6 +5,7 @@ local json = require("source.dkjson")
 local Console = require("source.console")
 local fs = love.filesystem
 local base_width, base_height = 1000, 525
+local Audio = require("source.audio")
 
 local Options = {}
 local optionsFile = "options.json"
@@ -22,6 +23,8 @@ Options.categories = {
         name = "Audio",
         items = {
             {name="Audio Volume", type="slider", value=0.5, min=0, max=1, step=0.05},
+            {name="Music Volume", type="slider", value=1, min=0, max=1, step=0.05},
+            {name="Sound Volume", type="slider", value=1, min=0, max=1, step=0.05},
         }
     },
     {
@@ -69,6 +72,7 @@ Options.selectedItem = 1
 Options.scrollOffset = 0
 Options.itemSpacing = math.floor(60 * (base_height / 525))
 Options.visibleRows = math.floor((base_height - 400) / Options.itemSpacing)
+Options.activeSlider = nil
 
 function Options:forEachItem(callback)
     for _, category in ipairs(self.categories) do
@@ -126,7 +130,86 @@ function Options:save()
     fs.write(optionsFile, encoded)
 end
 
-function Options:update(dt)
+function Options:applyValue(item, camera, chunkCfg, visible_idk)
+    if item.name == "Audio Volume" then
+        Audio.setMasterVolume(item.value)
+    elseif item.name == "Camera Sensitivity" then
+        if camera then camera.sensitivity = item.value end
+    elseif item.name == "Camera Smoothness" then
+        if camera then camera.smoothness = item.value end
+    elseif item.name == "FOV" then
+        if camera then camera.fov = item.value end
+    elseif item.name == "Chunk Size" then
+        if chunkCfg then chunkCfg.size = item.value end
+    elseif item.name == "Render Chunk Radious" then
+        if chunkCfg then chunkCfg.radius = item.value end
+    elseif item.name == "Music Volume" then
+        Audio.setMusicVolume(item.value)
+    elseif item.name == "Sound Volume" then
+        Audio.setSoundVolume(item.value)
+    elseif item.name == "Custom Cursor" then
+        if visible_idk then visible_idk.cursor = item.value end
+    elseif item.name == "Sky Box" then
+        if visible_idk then visible_idk.skyBox = item.value end
+    elseif item.name == "Console" then
+        Console.active = item.value
+    end
+end
+
+function Options:update(dt, camera, chunkCfg, visible_idk)
+    if self.activeSlider and love.mouse.isDown(1) then
+        local mouseX = love.mouse.getX()
+        local item = self.activeSlider.item
+        local sliderX = self.activeSlider.x
+        local sliderWidth = self.activeSlider.width
+        local rawFill = (mouseX - sliderX) / sliderWidth
+        rawFill = math.max(0, math.min(1, rawFill))
+        local rawValue = item.min + rawFill * (item.max - item.min)
+        local steppedValue = math.floor((rawValue - item.min) / item.step + 0.5) * item.step + item.min
+        steppedValue = math.max(item.min, math.min(item.max, steppedValue))
+
+        if item.value ~= steppedValue then
+            item.value = steppedValue
+            self:applyValue(item, camera, chunkCfg, visible_idk)
+            self:save()
+        end
+    end
+end
+
+function Options:mousepressed(x, y, button, camera, chunkCfg, visible_idk)
+    if button ~= 1 or self.state ~= "items" then return end
+
+    local startX = 50
+    local currentY = math.floor(base_height * 0.2) + self.itemSpacing
+    local sliderWidth = 200
+    local hitPadding = 10
+
+    local category = self.categories[self.selectedCategory]
+    for i, item in ipairs(category.items) do
+        if item.type == "slider" then
+            local sliderX = startX + 675
+            local sliderY = currentY + 10
+            if x >= sliderX and x <= sliderX + sliderWidth and
+               y >= sliderY - hitPadding and y <= sliderY + 8 + hitPadding then
+                
+                self.selectedItem = i
+                self.activeSlider = {
+                    item = item,
+                    x = sliderX,
+                    width = sliderWidth
+                }
+                self:update(0, camera, chunkCfg, visible_idk)
+                break
+            end
+        end
+        currentY = currentY + self.itemSpacing
+    end
+end
+
+function Options:mousereleased(x, y, button)
+    if button == 1 then
+        self.activeSlider = nil
+    end
 end
 
 function Options:draw()
@@ -146,8 +229,6 @@ function Options:draw()
         end
     else
         local category = self.categories[self.selectedCategory]
-
-        --utils.drawTextWithBorder(category.name, startX, y, nil, "left", {0.5,0.8,1}, {0,0,0})
         y = y + spacing
 
         for i, item in ipairs(category.items) do
@@ -168,6 +249,8 @@ function Options:draw()
                 lg.rectangle("fill", sliderX, y + 10, sliderWidth * fill, 8)
 
                 lg.setColor(1,1,1)
+                lg.circle("fill", sliderX + (sliderWidth * fill), y + 14, 8)
+
             elseif item.type == "toggle" then
                 local toggleX = startX + 675
                 local text = item.value and "ON" or "OFF"
@@ -217,6 +300,7 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
 
         return
     end
+
     local category = self.categories[self.selectedCategory]
     local items = category.items
 
@@ -244,34 +328,16 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
             local oldValue = current.value
             current.value = math.max(current.min, math.min(current.max, current.value + delta))
 
-            if current.name == "Audio Volume" then
-                love.audio.setVolume(current.value)
-            elseif current.name == "Camera Sensitivity" then
-                camera.sensitivity = current.value
-            elseif current.name == "Camera Smoothness" then
-                camera.smoothness = current.value
-            elseif current.name == "FOV" then
-                camera.fov = current.value
-            elseif current.name == "Chunk Size" then
-                chunkCfg.size = current.value
-            elseif current.name == "Render Chunk Radious" then
-                chunkCfg.radius = current.value
-            end
-
             if current.value ~= oldValue then
+                self:applyValue(current, camera, chunkCfg, visible_idk)
                 self:save()
             end
         end
     end
+
     if current.type == "toggle" and (key == "left" or key == "right" or key == "return") then
         current.value = not current.value
-        if current.name == "Custom Cursor" then
-            visible_idk.cursor = current.value
-        elseif current.name == "Sky Box" then
-            visible_idk.skyBox = current.value
-        elseif current.name == "Console" then
-            Console.active = current.value
-        end
+        self:applyValue(current, camera, chunkCfg, visible_idk)
         self:save()
     end
 
@@ -281,15 +347,9 @@ function Options:keypressed(key, camera, chunkCfg, visible_idk)
                 if self.defaults[item.name] ~= nil then
                     item.value = self.defaults[item.name]
                 end
+                self:applyValue(item, camera, chunkCfg, visible_idk)
             end)
             FPS_CAP = self.defaults["FPS Cap"]
-            love.audio.setVolume(self.defaults["Audio Volume"])
-            camera.sensitivity = self.defaults["Camera Sensitivity"]
-            camera.smoothness = self.defaults["Camera Smoothness"]
-            chunkCfg.size = self.defaults["Chunk Size"]
-            chunkCfg.radius = self.defaults["Render Chunk Radious"]
-            visible_idk.cursor = self.defaults["Custom Cursor"]
-            visible_idk.skyBox = self.defaults["Sky Box"]
             self:save()
         end
     end

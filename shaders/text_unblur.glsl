@@ -1,9 +1,15 @@
 uniform float threshold;
+uniform float softness;
 uniform vec4 tintColor;
 
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 px)
 {
     vec4 texColor = Texel(tex, uv);
-    float alpha = clamp(sign(texColor.a - threshold) + 1.0, 0.0, 1.0);
-    return vec4(tintColor.rgb, alpha) * color;
+    if (texColor.a <= 0.001)
+        return vec4(0.0);
+    if (texColor.a >= 0.999)
+        return texColor * color;
+    float alpha = smoothstep(threshold - softness, threshold + softness, texColor.a);
+    vec3 rgb = mix(texColor.rgb, tintColor.rgb, alpha);
+    return vec4(rgb, alpha) * color;
 }

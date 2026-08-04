@@ -1,6 +1,7 @@
 local love = require "love"
 local lg = love.graphics
 local knapping_recipes = require("source.hud.recipes.knapping")
+local Progression = require("source.progression")
 
 local Knap = {}
 
@@ -111,6 +112,7 @@ function Knap:mousepressed(mx, my, btn, inventory, itemTypes, ItemsModule, count
         else
             ItemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.craftedItem, 1)
         end
+        Progression:trackItemCrafted(self.craftedItem, itemTypes)
         Knap.open = false
         self:resetGrid()
         self.craftedItem = nil

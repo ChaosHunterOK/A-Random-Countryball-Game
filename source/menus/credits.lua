@@ -16,7 +16,7 @@ local fadeSpeed = 2
 function CreditsMenu.update(dt)
     --Audio.update(dt)
 
-    local creditsSource = Audio.getSource("credits")
+    local creditsSource = Audio.getMusic("credits")
     if not creditsSource then
         return
     end

@@ -88,10 +88,10 @@ function utils.randomRange(a, b)
 end
 
 function utils.drawSharpText(text, x, y, limit, align)
-    text = tostring(text or "")
-    x = tonumber(x) or 0
-    y = tonumber(y) or 0
-    limit = tonumber(limit) or love.graphics.getWidth()
+    text = text or ""
+    x = x or 0
+    y = y or 0
+    limit = limit or love.graphics.getWidth()
     align = align or "left"
     love.graphics.setShader(sharpTextShader)
     love.graphics.printf(text, x, y, limit, align)
@@ -100,10 +100,10 @@ end
 
 function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textColor)
     local lg = love.graphics
-    text = tostring(text or "")
-    x = tonumber(x) or 0
-    y = tonumber(y) or 0
-    limit = tonumber(limit) or lg.getWidth()
+    text = text or ""
+    x = x or 0
+    y = y or 0
+    limit = limit or lg.getWidth()
     align = align or "left"
     borderColor = borderColor or {0, 0, 0, 1}
     textColor = textColor or {1, 1, 1, 1}
@@ -122,26 +122,22 @@ end
 
 function utils.hsvToRgb(h, s, v)
     local c = v * s
-    local x = c * (1 - abs((h / 60) % 2 - 1))
+    local hp = h / 60
+    local x = c * (1 - abs(hp % 2 - 1))
     local m = v - c
-    local r, g, b = 0, 0, 0
 
-    if h < 60 then r, g, b = c, x, 0
-    elseif h < 120 then r, g, b = x, c, 0
-    elseif h < 180 then r, g, b = 0, c, x
-    elseif h < 240 then r, g, b = 0, x, c
-    elseif h < 300 then r, g, b = x, 0, c
-    else r, g, b = c, 0, x end
-
-    return r + m, g + m, b + m
+    if hp < 1 then return c + m, x + m, m end
+    if hp < 2 then return x + m, c + m, m end
+    if hp < 3 then return m, c + m, x + m end
+    if hp < 4 then return m, x + m, c + m end
+    if hp < 5 then return x + m, m, c + m end
+    return c + m, m, x + m
 end
 
 function utils.parseColor(hex)
-    hex = hex:gsub("#","")
-    local r = tonumber(hex:sub(1,2),16)/255
-    local g = tonumber(hex:sub(3,4),16)/255
-    local b = tonumber(hex:sub(5,6),16)/255
-    return {r, g, b, 1}
+    local r, g, b = hex:match("#?(%x%x)(%x%x)(%x%x)")
+    if not r then return {1, 1, 1, 1} end
+    return {tonumber(r, 16) / 255, tonumber(g, 16) / 255, tonumber(b, 16) / 255, 1}
 end
 
 function utils.any(t, func)
