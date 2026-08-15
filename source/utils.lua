@@ -6,6 +6,7 @@ local random = math.random
 local sharpTextShader = love.graphics.newShader("shaders/text_unblur.glsl")
 sharpTextShader:send("threshold", 0.5)
 sharpTextShader:send("tintColor", {1, 1, 1, 1})
+local lg = love.graphics
 
 function utils.clamp(v, a, b)
     return v < a and a or (v > b and b or v)
@@ -91,15 +92,14 @@ function utils.drawSharpText(text, x, y, limit, align)
     text = text or ""
     x = x or 0
     y = y or 0
-    limit = limit or love.graphics.getWidth()
+    limit = limit or lg.getWidth()
     align = align or "left"
-    love.graphics.setShader(sharpTextShader)
-    love.graphics.printf(text, x, y, limit, align)
-    love.graphics.setShader()
+    lg.setShader(sharpTextShader)
+    lg.printf(text, x, y, limit, align)
+    lg.setShader()
 end
 
 function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textColor)
-    local lg = love.graphics
     text = text or ""
     x = x or 0
     y = y or 0

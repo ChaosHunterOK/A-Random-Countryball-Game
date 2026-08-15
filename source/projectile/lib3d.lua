@@ -1,5 +1,4 @@
 --new library lol
-local ffi = require "ffi"
 local lib3d = {}
 
 function lib3d.vec3Normalize(x, y, z)
@@ -58,7 +57,6 @@ function lib3d.getRightVector(yaw)
     local sy = math.sin(yaw)
     return cy, 0, -sy
 end
-local cacheKey = ""
 local matrixCache = { matrix = {}, lastParams = {} }
 
 function lib3d.getMVPMatrix(camX, camY, camZ, yaw, pitch, fov, aspect, znear, zfar)
@@ -93,7 +91,8 @@ function lib3d.getMVPMatrix(camX, camY, camZ, yaw, pitch, fov, aspect, znear, zf
 end
 
 function lib3d.clearMatrixCache()
-    matrixCache = {}
+    matrixCache.matrix = {}
+    matrixCache.lastParams = {}
 end
 
 
@@ -244,9 +243,8 @@ function lib3d.getSpatialNearby(x, z, hashSize, range)
     local count = 0
     
     for dx = -range, range do
-        local curX = (hx + dx) * 40000
         for dz = -range, range do
-            local key = curX + (hz + dz)
+            local key = (hx + dx) .. "_" .. (hz + dz)
             local cell = spatialHash[key]
             if cell then
                 for i = 1, #cell do
@@ -286,6 +284,12 @@ function lib3d.sortFacesByDepth(faces)
     table.sort(faces, function(a, b)
         return a.depth > b.depth
     end)
+end
+
+function lib3d.getProjectionScale(cameraDepth, cameraHW, cameraZoom, baseFactor)
+    if cameraDepth <= 0 then return 0 end
+    baseFactor = baseFactor or 0.0025
+    return (cameraHW / cameraDepth) * cameraZoom * baseFactor
 end
 
 return lib3d

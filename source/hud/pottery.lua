@@ -143,7 +143,7 @@ function Pottery:checkRecipe()
             local req = recipe.input[i]
             local slot = self.slots[i]
 
-            if req == "stone" and slot ~= true then ok = false break end
+            if req == true and slot ~= true then ok = false break end
             if req == nil and slot ~= nil then ok = false break end
         end
 
