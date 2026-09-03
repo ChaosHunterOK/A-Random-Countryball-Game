@@ -19,10 +19,10 @@ camera._right = {x=0, y=0, z=0}
 camera._cached = false
 camera._lastYaw = -1
 camera._lastPitch = -1
+camera._cosYaw, camera._sinYaw = 1, 0
+camera._cosPitch, camera._sinPitch = 1, 0
 
 local sin, cos, tan, rad = math.sin, math.cos, math.tan, math.rad
-local clamp = require("source.utils").clamp
-
 local base_width, base_height = 1000, 525
 
 function camera:updateProjectionConstants(w, h)
@@ -36,6 +36,8 @@ function camera:updateProjectionConstants(w, h)
     self._f = 1 / self.fovHalfTan
     self._fx = self._f / self.aspect
     self._fy = self._f
+    self._cosYaw, self._sinYaw = cos(self.yaw), sin(self.yaw)
+    self._cosPitch, self._sinPitch = cos(self.pitch), sin(self.pitch)
     self.lookX = math.sin(self.yaw)
     self.lookZ = math.cos(self.yaw)
 end
@@ -47,15 +49,15 @@ end
 
 function camera:getForward()
     if self._lastYaw ~= self.yaw or self._lastPitch ~= self.pitch then
-        local cp = cos(self.pitch)
-        local sp = sin(self.pitch)
-        local cy = cos(self.yaw)
-        local sy = sin(self.yaw)
+        local cp, sp = cos(self.pitch), sin(self.pitch)
+        local cy, sy = cos(self.yaw), sin(self.yaw)
 
         local f = self._forward
         f.x = sy * cp
         f.y = -sp
         f.z = cy * cp
+        self._cosYaw, self._sinYaw = cy, sy
+        self._cosPitch, self._sinPitch = cp, sp
         
         self._lastYaw = self.yaw
         self._lastPitch = self.pitch
@@ -63,9 +65,10 @@ function camera:getForward()
     return self._forward
 end
 
+local worldUp = {x = 0, y = 1, z = 0}
+
 function camera:getRight()
     local f = self:getForward()
-    local worldUp = {x = 0, y = 1, z = 0}
 
     local r = self._right
     r.x = f.y * worldUp.z - f.z * worldUp.y
@@ -80,8 +83,8 @@ end
 
 function camera:project3D(x, y, z)
     local dx, dy, dz = x - self.x, y - self.y, z - self.z
-    local cy, sy = cos(self.yaw), sin(self.yaw)
-    local cp, sp = cos(self.pitch), sin(self.pitch)
+    local cy, sy = self._cosYaw, self._sinYaw
+    local cp, sp = self._cosPitch, self._sinPitch
     local x1 = dx * cy - dz * sy
     local z1 = dx * sy + dz * cy
     local y1 = dy * cp - z1 * sp

@@ -1,7 +1,6 @@
 local love = require "love"
 local lg = love.graphics
 local countryball = require "source.countryball"
-local utils = require("source.utils")
 
 local healthBar = {
     health = countryball.health or 3,
@@ -38,6 +37,7 @@ function healthBar:setHealth(value)
 
     self.health = value
     self.lastHealth = value
+    countryball.health = value
 end
 
 function healthBar:damageHealth(amount, x, z)
@@ -79,22 +79,6 @@ function healthBar:getHeartScale(index)
     local beatTime = beatCycle % (self.maxHealth * self.heartbeatDelay)
     local pulse = math.sin(math.min(beatTime * math.pi * 2, math.pi))
     return 1 + pulse * 0.1 * self.heartbeatIntensity
-end
-
-function hsvToRgb(h, s, v)
-    local c = v * s
-    local x = c * (1 - math.abs((h / 60) % 2 - 1))
-    local m = v - c
-    local r, g, b = 0, 0, 0
-
-    if h < 60 then r, g, b = c, x, 0
-    elseif h < 120 then r, g, b = x, c, 0
-    elseif h < 180 then r, g, b = 0, c, x
-    elseif h < 240 then r, g, b = 0, x, c
-    elseif h < 300 then r, g, b = x, 0, c
-    else r, g, b = c, 0, x end
-
-    return r + m, g + m, b + m
 end
 
 function healthBar:draw()

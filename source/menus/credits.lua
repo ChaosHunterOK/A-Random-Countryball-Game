@@ -1,10 +1,10 @@
 local love = require("love")
 local lg = love.graphics
 local base_width, base_height = 1000, 525
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 local Audio = require("source.audio")
 local CreditsMenu = {
-    credits = {"CopiluCuSarmle - Artist, Animator, Coder, Composer", "Replayer - Former Composer", "Solid - Composer"},
+    credits = {"DEVS", "CopiluCuSarmle - Artist, Animator, Coder, Composer", "Solid - Composer", "FORMER DEVS", "Replayer - Composer"},
     scrollOffset = 0,
     visibleRows = 8,
     itemSpacing = 60,

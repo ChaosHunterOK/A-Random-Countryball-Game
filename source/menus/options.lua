@@ -1,8 +1,8 @@
 local love = require"love"
 local lg = love.graphics
-local utils = require("source.utils")
-local json = require("source.dkjson")
-local Console = require("source.console")
+local utils = require("source.utils.utils")
+local json = require("source.utils.dkjson")
+local Console = require("source.utils.console")
 local fs = love.filesystem
 local base_width, base_height = 1000, 525
 local Audio = require("source.audio")
@@ -98,7 +98,11 @@ function Options:load(camera, chunkCfg, visible_idk)
 
     self:forEachItem(function(item)
         if item.name == "Audio Volume" then
-            love.audio.setVolume(item.value)
+            Audio.setMasterVolume(item.value)
+        elseif item.name == "Music Volume" then
+            Audio.setMusicVolume(item.value)
+        elseif item.name == "Sound Volume" then
+            Audio.setSoundVolume(item.value)
         elseif item.name == "Camera Sensitivity" then
             camera.sensitivity = item.value
         elseif item.name == "Camera Smoothness" then

@@ -5,7 +5,7 @@ local sqrt, max, random, floor, cos, sin, pi = math.sqrt, math.max, math.random,
 local camera = require("source.projectile.camera")
 local countryball = require("source.countryball")
 local ItemsModule = require("source.items")
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 local Inventory = require("source.hud.inv")
 local nightCycle = require("source.projectile.night_cycle")
 local Particles = require("source.projectile.particles")
@@ -59,16 +59,16 @@ local propTypes = {
         isTree = true, spawnOn = {"grassHot"}, scale = {1.7, 1.8},
     },
     {
-        img = lg.newImage(im.."rock.png"), 
+        img = lg.newImage(im.."rocks/rock.png"), 
         maxHealth = 25, name = "Rock", bestTool = "pickaxe", 
         rewards = { {item = "stone", count = {2, 4}} },
         spawnOn = {"stone", "granite", "grassNormal"}
     },
     {
-        img = lg.newImage(im.."mini_rock.png"), 
+        img = lg.newImage(im.."rocks/mini_rock.png"), 
         maxHealth = 5, name = "Mini Rock", bestTool = "pickaxe", 
         rewards = { {item = "stone", count = {1, 1}} },
-        spawnOn = {"grassCold", "grassHot", "grassNormal"}
+        spawnOn = {"grassCold", "grassHot", "grassNormal", "grassRainforest", "stone"}
     },
     {
         img = lg.newImage(im.."ore_type/iron.png"),
@@ -89,25 +89,43 @@ local propTypes = {
         spawnOn = {"grassHot", "sandNormal", "sandGypsum"}
     },
     {
+        img = lg.newImage(im.."plants/buttonbush.png"), 
+        maxHealth = 2, name = "Buttonbush", bestTool = "knife", 
+        rewards = { {item = "leaf", count = {3, 6}} },
+        spawnOn = {"grassRainforest"}
+    },
+    {
+        img = lg.newImage(im.."plants/cactus/barrel.png"), 
+        maxHealth = 8, name = "Barrel Cactus", bestTool = "axe", 
+        --rewards = { {item = "leaf", count = {3, 6}} },
+        spawnOn = {"sandNormal"}
+    },
+    {
         img = lg.newImage(im.."plants/bush_cold.png"), 
         maxHealth = 2, name = "Bush Cold", bestTool = "knife", 
         rewards = { {item = "leaf", count = {3, 6}} },
         spawnOn = {"grassCold"}
     },
     {
-        img = lg.newImage(im.."porphyry_rock.png"), 
+        img = lg.newImage(im.."rocks/porphyry_rock.png"), 
         maxHealth = 25, name = "Porphyry Rock", bestTool = "pickaxe", 
         rewards = { {item = "porphyry", count = {2, 4}} },
         spawnOn = {"stone", "porphyry"}
     },
     {
-        img = lg.newImage(im.."dark_rock.png"), 
+        img = lg.newImage(im.."rocks/mini_porphyry_rock.png"), 
+        maxHealth = 5, name = "Mini Porphyry Rock", bestTool = "pickaxe", 
+        rewards = { {item = "porphyry", count = {1, 1}} },
+        spawnOn = {"grassNormal", "porphyry"}
+    },
+    {
+        img = lg.newImage(im.."rocks/dark_rock.png"), 
         maxHealth = 25, name = "Dark Rock", bestTool = "pickaxe", 
         rewards = { {item = "dark_stone", count = {2, 4}} },
         spawnOn = {"stone_dark"}
     },
     {
-        img = lg.newImage(im.."pumice_rock.png"), 
+        img = lg.newImage(im.."rocks/pumice_rock.png"), 
         maxHealth = 25, name = "Pumice Rock", bestTool = "pickaxe", 
         rewards = { {item = "pumice", count = {2, 4}} },
         spawnOn = {"pumice", "granite"}
@@ -126,16 +144,18 @@ local propTypes = {
     {
         img = lg.newImage(im.."plants/dead_sapling.png"), 
         maxHealth = 5, name = "Dead Sapling", bestTool = "axe",
-        rewards = { {item = "stick", count = {2, 10}}, {item = "oak", count = {0, 2}} },
+        rewards = { {item = "stick", count = {2, 5}}, {item = "oak", count = {0, 2}} },
         spawnOn = {"sandNormal", "sandGypsum"}
     },
     {
         img = lg.newImage(im.."ore_type/anthracite_coal.png"), 
+        rewards = { {item = "anthracite_coal", count = {2, 6}} },
         maxHealth = 30, name = "Anthracite Ore", bestTool = "pickaxe",
         spawnOn = {"stone", "stone_dark"}
     },
     {
         img = lg.newImage(im.."ore_type/bituminous_coal.png"), 
+        rewards = { {item = "bituminous_coal", count = {2, 6}} },
         maxHealth = 30, name = "Bituminous Ore", bestTool = "pickaxe",
         spawnOn = {"stone"}
     },
@@ -153,7 +173,7 @@ local propTypes = {
     },
     {
         name = "Cycad", bestTool = "axe", maxHealth = 15, isTall = true,
-        rewards = { {item = "stick", count = {2, 5}}, {item = "leaf", count = {2, 4}} },
+        rewards = { {item = "stick", count = {2, 5}}, {item = "cycad_leaf", count = {2, 4}} },
         spawnOn = {"grassNormal", "grassHot", "sandNormal"},
         imgBottom = lg.newImage(im.."plants/cycad/bottom.png"),
         imgMiddle = lg.newImage(im.."plants/cycad/middle.png"),
@@ -185,6 +205,10 @@ local propTypes = {
     },
 }
 
+local cactusIndex = 9
+local cactusDamageCool = 1
+local damageCactusOnContact
+
 for _, t in ipairs(propTypes) do
     if t.isTall then
         t.w = max(t.imgBottom:getWidth(), t.imgMiddle:getWidth(), t.imgTop:getWidth())
@@ -201,14 +225,6 @@ local appleSeedTiles = {grassNormal = true, grassHot = true, grassCold = true, d
 local CHUNK_SIZE = 5
 local CHUNK_RADIUS_SQ = 4 * 4
 
-local function isPropInVisibleChunk(prop)
-    local camChunkX = floor(camera.x / CHUNK_SIZE)
-    local camChunkZ = floor(camera.z / CHUNK_SIZE)
-    local objChunkX = floor(prop.x / CHUNK_SIZE)
-    local objChunkZ = floor(prop.z / CHUNK_SIZE)
-    return (objChunkX - camChunkX) ^ 2 + (objChunkZ - camChunkZ) ^ 2 <= CHUNK_RADIUS_SQ
-end
-
 local function makeSurfaceMesh()
     return lg.newMesh({
         {"VertexPosition", "float", 2},
@@ -218,7 +234,7 @@ local function makeSurfaceMesh()
 end
 
 local function drawSurProp(prop, img)
-    if not img or not isPropInVisibleChunk(prop) then return end
+    if not img then return end
 
     local scale = prop.scale or 1
     local halfW = 0.38 * scale
@@ -240,12 +256,24 @@ local function drawSurProp(prop, img)
     local r, g, b = textureMul[1], textureMul[2], textureMul[3]
 
     prop.mesh = prop.mesh or makeSurfaceMesh()
-    prop.mesh:setVertices({
-        {x1, y1, 0, 0, r, g, b, 1},
-        {x2, y2, 1, 0, r, g, b, 1},
-        {x3, y3, 1, 1, r, g, b, 1},
-        {x4, y4, 0, 1, r, g, b, 1},
-    })
+    local vertices = prop.surfaceVertices
+    if not vertices then
+        vertices = {
+            {0, 0, 0, 0, 1, 1, 1, 1},
+            {0, 0, 1, 0, 1, 1, 1, 1},
+            {0, 0, 1, 1, 1, 1, 1, 1},
+            {0, 0, 0, 1, 1, 1, 1, 1},
+        }
+        prop.surfaceVertices = vertices
+    end
+    vertices[1][1], vertices[1][2] = x1, y1
+    vertices[2][1], vertices[2][2] = x2, y2
+    vertices[3][1], vertices[3][2] = x3, y3
+    vertices[4][1], vertices[4][2] = x4, y4
+    for i = 1, 4 do
+        vertices[i][5], vertices[i][6], vertices[i][7] = r, g, b
+    end
+    prop.mesh:setVertices(vertices)
     prop.mesh:setTexture(img)
     lg.setColor(r, g, b, 1)
     lg.draw(prop.mesh)
@@ -470,13 +498,18 @@ local MAX_RENDER_DIST_SQ = 35 * 35
 local function drawProps(propList, drawWithStencil)
     local cx, cz = countryball.x, countryball.z
     local pixelToWorldY = 0.0075
+    local camChunkX = floor(camera.x / CHUNK_SIZE)
+    local camChunkZ = floor(camera.z / CHUNK_SIZE)
 
     for i = 1, #propList do
         local prop = propList[i]
         local dx, dz = prop.x - cx, prop.z - cz
         local distSq = dx * dx + dz * dz
-        
-        if distSq <= MAX_RENDER_DIST_SQ then
+        local propChunkX = floor(prop.x / CHUNK_SIZE)
+        local propChunkZ = floor(prop.z / CHUNK_SIZE)
+
+        if distSq <= MAX_RENDER_DIST_SQ and
+            (propChunkX - camChunkX) ^ 2 + (propChunkZ - camChunkZ) ^ 2 <= CHUNK_RADIUS_SQ then
             local t = propTypes[prop.typeIndex]
             local totalPixelHeight = t and t.h or 0
             local pScale = prop.scale or 1
@@ -550,6 +583,9 @@ local function handleMousePressed(mx, my)
                         local h = propHeight * scale
 
                         if mx >= sx - w / 2 and mx <= sx + w / 2 and my >= sy - h and my <= sy then
+                            if prop.typeIndex == cactusIndex and not selected then
+                                damageCactusOnContact(countryball, prop, 0)
+                            end
                             local multiplier = selected and ItemsModule.getToolMultiplier(selected.type, t.bestTool) or 1
                             prop.health = prop.health - multiplier
 
@@ -610,6 +646,42 @@ local function handleMousePressed(mx, my)
     return false
 end
 
+function damageCactusOnContact(entity, cactus, dt)
+    if not entity or not cactus or cactus.typeIndex ~= cactusIndex then return false end
+
+    entity.cactusDamageCooldown = math.max(0, (entity.cactusDamageCooldown or 0) - (dt or 0))
+    if entity.cactusDamageCooldown > 0 then return false end
+
+    local entityHalfWidth = (entity.w or 1) * 0.5
+    local entityHalfDepth = (entity.d or 1) * 0.5
+    local cactusRadius = cactus.radius or 0.75
+    local dx, dz = entity.x - cactus.x, entity.z - cactus.z
+    local horizontalRange = cactusRadius + math.max(entityHalfWidth, entityHalfDepth)
+    if dx * dx + dz * dz > horizontalRange * horizontalRange then return false end
+
+    local cactusHeight = math.max(1, (propTypes[cactusIndex].h or 0) * 0.0075)
+    local entityBottom, entityTop = entity.y or 0, (entity.y or 0) + (entity.h or 1)
+    if entityTop <= cactus.y or entityBottom >= cactus.y + cactusHeight then return false end
+
+    local directionLength = math.sqrt(dx * dx + dz * dz)
+    local directionX, directionZ = 1, 0
+    if directionLength > 0 then
+        directionX, directionZ = dx / directionLength, dz / directionLength
+    end
+    entity:takeDamage(1, directionX, directionZ)
+    entity.cactusDamageCooldown = cactusDamageCool
+    return true
+end
+
+local function updateCactusContact(entity, dt)
+    if not entity then return false end
+    entity.cactusDamageCooldown = math.max(0, (entity.cactusDamageCooldown or 0) - (dt or 0))
+    for i = 1, #props do
+        if damageCactusOnContact(entity, props[i], 0) then return true end
+    end
+    return false
+end
+
 local function findPropById(id)
     for i = 1, #props do
         if props[i].id == id then return props[i], i end
@@ -648,6 +720,7 @@ return {
     updateProps = updateProps,
     drawProps = drawProps,
     handleMousePressed = handleMousePressed,
+    updateCactusContact = updateCactusContact,
     plantAppleSeed = plantAppleSeed,
     loadSavedProps = loadSavedProps,
     clearProps = clearProps,

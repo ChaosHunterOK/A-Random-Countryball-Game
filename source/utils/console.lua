@@ -1,6 +1,6 @@
 local Console = {}
 
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 
 Console.active = false
 Console.lines = {}

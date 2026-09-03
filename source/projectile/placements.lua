@@ -1,4 +1,3 @@
-local lib3d = require "source.projectile.lib3d"
 local lg = love.graphics
 local abs = math.abs
 

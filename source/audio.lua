@@ -3,7 +3,8 @@ local love = require "love"
 local Audio = {}
 
 Audio.songs = {
-    main = "music/music.mp3",
+    main = "music/walking forward.mp3",
+    music = "music/music.mp3",
     menu = "music/menu.mp3",
     pause = "music/taketwo_3.mp3",
     credits = "music/takethree.mp3",
@@ -20,7 +21,6 @@ Audio.currentTrack = nil
 
 function Audio.load()
     Audio.currentTrack = nil
-    Audio.updateVolumes()
     for name, path in pairs(Audio.songs) do
         local source = love.audio.newSource(path, "stream")
         source:setLooping(true)
@@ -32,6 +32,7 @@ function Audio.load()
         source:setVolume(1)
         Audio.sfx[name] = source
     end
+    Audio.updateVolumes()
 end
 
 function Audio.switchSong(name)

@@ -1,7 +1,8 @@
 local love = require "love"
 local lg = love.graphics
 local crafting_recipes = require("source.hud.recipes.crafting")
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
+local tweens = require("source.utils.tweens")
 local Audio = require("source.audio")
 local Crafting = {}
 Crafting.open = false
@@ -18,20 +19,17 @@ Crafting.draggingSlot = nil
 Crafting.hoveredItem = nil
 Crafting.previewItem = nil
 
-local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
-local function easeInOutExpo(t)
-    if t==0 then return 0 end
-    if t==1 then return 1 end
-    return t<0.5 and 2^(20*t-10)/2 or (2-2^(-20*t+10))/2
+function Crafting:animateToOpen(open)
+    tweens.cancelProperty(self, "anim")
+    tweens.cancelProperty(self, "bgAlpha")
+    self.timer = 0
+    local targetAnim = open and 1 or 0
+    local targetAlpha = open and 0.25 or 0
+    tweens.to(self, "anim", targetAnim, self.duration, tweens.easeInOutQuad)
+    tweens.to(self, "bgAlpha", targetAlpha, self.duration, tweens.easeInOutQuad)
 end
 
 function Crafting:update(dt)
-    if (self.open and self.anim<1) or (not self.open and self.anim>0) then
-        self.timer = math.min(self.timer + dt, self.duration)
-        local t = self.timer / self.duration
-        self.anim = self.open and easeInOutQuad(t) or 1 - easeInOutQuad(t)
-        self.bgAlpha = 0.25 * self.anim
-    end
     self.craftedItem = self:checkRecipe()
 end
 
@@ -101,8 +99,7 @@ function Crafting:draw(inventory, itemTypes, items)
         local itemImg = items[self.craftedItem.type]
         if itemImg then
             local iw, ih = itemImg:getWidth(), itemImg:getHeight()
-            local t = easeInOutExpo(self.anim)
-            lg.draw(itemImg, outputX + barWidth/2, outputY + barHeight/2, 0, scale*t, scale*t, iw/2, ih/2)
+            lg.draw(itemImg, outputX + barWidth/2, outputY + barHeight/2, 0, scale, scale, iw/2, ih/2)
             utils.drawTextWithBorder(self.craftedItem.count,outputX + 12 * scale,outputY + 8 * scale)
         end
     end
@@ -147,7 +144,7 @@ end
 
 function Crafting:toggle()
     self.open = not self.open
-    self.timer = 0
+    self:animateToOpen(self.open)
 end
 
 function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule, countryball)

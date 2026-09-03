@@ -1,6 +1,6 @@
 local love = require "love"
 local camera = require "source.projectile.camera"
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 
 local Achievement = {}
 

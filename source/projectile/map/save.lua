@@ -1,5 +1,5 @@
 local love = require("love")
-local json = require("source.dkjson")
+local json = require("source.utils.dkjson")
 local floor, min, max = math.floor, math.min, math.max
 
 local fs = love.filesystem
@@ -63,7 +63,9 @@ function Mapsave.save(baseplateTiles, materials, worldName, extra)
                 subsurface = tile.subsurface,
                 biome = tile.biome,
                 containsCave = tile.containsCave, isVolcano = tile.isVolcano, chunkX = tile.chunkX, chunkZ = tile.chunkZ,
-                textureName = texLookup[tile.texture] or tile.textureName or "default"
+                textureName = texLookup[tile.texture] or tile.textureName or "default",
+                isAir = tile.isAir or nil,
+                isLava = tile.isLava or nil,
             }
         end
     end
@@ -73,7 +75,35 @@ function Mapsave.save(baseplateTiles, materials, worldName, extra)
         meta = extra or {}
     }
 
-    saveJSON(getFilePath(worldName, "mapsave.json"), data)
+    local saved = saveJSON(getFilePath(worldName, "mapsave.json"), data)
+    if saved then
+        local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+        for i = 1, #out do
+            local tile = out[i]
+            local x = tile.x or tile.verts[1][1]
+            local z = tile.z or tile.verts[1][3]
+            minX, maxX = min(minX, x), max(maxX, x)
+            minZ, maxZ = min(minZ, z), max(maxZ, z)
+        end
+
+        if minX ~= math.huge then
+            local centerX, centerZ = (minX + maxX) * 0.5, (minZ + maxZ) * 0.5
+            local previewTiles = {}
+            for i = 1, #out do
+                local tile = out[i]
+                local x = tile.x or tile.verts[1][1]
+                local z = tile.z or tile.verts[1][3]
+                if math.abs(x - centerX) <= 8 and math.abs(z - centerZ) <= 8 then
+                    previewTiles[#previewTiles + 1] = tile
+                end
+            end
+            saveJSON(getFilePath(worldName, "preview.json"), {
+                tiles = previewTiles,
+                meta = {centerX = centerX, centerZ = centerZ}
+            })
+        end
+    end
+    return saved
 end
 
 function Mapsave.load(materials, baseplateTiles, worldName)
@@ -119,7 +149,9 @@ function Mapsave.load(materials, baseplateTiles, worldName)
                 chunkX = t.chunkX,
                 chunkZ = t.chunkZ,
                 textureName = textureName,
-                texture = resolvedTexture
+                texture = resolvedTexture,
+                isAir = t.isAir or nil,
+                isLava = t.isLava or nil,
             }
 
             tile.collision = {
@@ -136,6 +168,79 @@ function Mapsave.load(materials, baseplateTiles, worldName)
     end
 
     return loadedTiles, tileGrid, meta
+end
+
+function Mapsave.loadPreview(materials, worldName, size)
+    local data = loadJSON(getFilePath(worldName, "preview.json"))
+    if not data then
+        data = loadJSON(getFilePath(worldName, "mapsave.json"))
+    end
+    if not data then return nil end
+
+    local tbl = data.tiles or data
+    local meta = data.meta or {}
+    local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+
+    for i = 1, #tbl do
+        local t = tbl[i]
+        local v = t.verts
+        if v and v[1] and v[3] then
+            local x = t.x or v[1][1]
+            local z = t.z or v[1][3]
+            minX, maxX = min(minX, x), max(maxX, x)
+            minZ, maxZ = min(minZ, z), max(maxZ, z)
+        end
+    end
+
+    if minX == math.huge then return nil end
+
+    size = size or 16
+    local centerX = data.meta and data.meta.centerX or (minX + maxX) * 0.5
+    local centerZ = data.meta and data.meta.centerZ or (minZ + maxZ) * 0.5
+    local radius = size * 0.5 + 1
+    local loadedTiles, tileGrid = {}, {}
+    local defMat = materials and materials.default
+
+    for i = 1, #tbl do
+        local t = tbl[i]
+        local v = t.verts
+        if v and v[1] and v[2] and v[3] and v[4] then
+            local x = t.x or v[1][1]
+            local z = t.z or v[1][3]
+            if math.abs(x - centerX) <= radius and math.abs(z - centerZ) <= radius then
+                local v1, v2, v3, v4 = v[1], v[2], v[3], v[4]
+                local textureName = t.textureName
+                local resolvedTexture = defMat
+                if materials and textureName then
+                    resolvedTexture = materials[textureName] or defMat
+                end
+                local tile = {
+                    {v1[1], v1[2], v1[3]}, {v2[1], v2[2], v2[3]},
+                    {v3[1], v3[2], v3[3]}, {v4[1], v4[2], v4[3]},
+                    height = t.height or 0,
+                    heights = t.heights or {},
+                    curHeight = t.curHeight or t.height or 0,
+                    x = t.x, y = t.y, z = t.z,
+                    w = t.w, d = t.d, h = t.h,
+                    biome = t.biome, subsurface = t.subsurface,
+                    containsCave = t.containsCave, isVolcano = t.isVolcano,
+                    chunkX = t.chunkX, chunkZ = t.chunkZ,
+                    textureName = textureName,
+                    texture = resolvedTexture,
+                    isAir = t.isAir or nil, isLava = t.isLava or nil,
+                }
+                tile.collision = {x = tile.x, y = tile.y, z = tile.z,
+                    w = tile.w, h = tile.h, d = tile.d}
+                loadedTiles[#loadedTiles + 1] = tile
+
+                local gx, gz = floor(x + 0.5), floor(z + 0.5)
+                tileGrid[gx] = tileGrid[gx] or {}
+                tileGrid[gx][gz] = tile
+            end
+        end
+    end
+
+    return loadedTiles, tileGrid, meta, centerX, centerZ
 end
 
 function Mapsave.saveCountryball(state, worldName)
@@ -231,6 +336,15 @@ end
 
 function Mapsave.loadProps(worldName)
     return loadJSON(getFilePath(worldName, "props.json"))
+end
+
+function Mapsave.saveStructures(structures, worldName)
+    if not structures then return false end
+    return saveJSON(getFilePath(worldName, "structures.json"), structures)
+end
+
+function Mapsave.loadStructures(worldName)
+    return loadJSON(getFilePath(worldName, "structures.json"))
 end
 
 return Mapsave

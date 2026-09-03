@@ -18,7 +18,10 @@ Progression.ages = {
         description = "Basic stone tools and survival",
         priority = 1,
         unlocks = {
-            items = {"stone_shovel", "stone_hoe", "stone_hammer", "stone_pickaxe", "stone_knife"},
+            items = {
+                "stone_shovel", "stone_hoe", "stone_hammer", "stone_pickaxe", "stone_knife",
+                "stone_axe", "fire_pit", "pit_kiln", "wood_planks",
+            },
             crafting = {"basic_crafting"}
         },
         requirements = {}
@@ -28,7 +31,11 @@ Progression.ages = {
         description = "Discover ceramics and pottery",
         priority = 2,
         unlocks = {
-            items = {"clay_bowl", "clay_pot", "clay_brick", "clay_furnace_brick"},
+            items = {
+                "clay_bowl", "clay_pot", "clay_brick", "clay_furnace_brick", "clay_plate", "clay_cup", "clay_jar",
+                "clay_bowl_unfired", "clay_pot_unfired", "clay_brick_unfired", "clay_furnace_brick_unfired",
+                "clay_plate_unfired", "clay_cup_unfired", "clay_jar_unfired",
+            },
             crafting = {"pottery_crafting"}
         },
         requirements = {
@@ -40,7 +47,7 @@ Progression.ages = {
         description = "Smelt copper ore for advanced tools",
         priority = 3,
         unlocks = {
-            items = {"copper_ingot", "copper_shovel", "copper_hoe", "copper_hammer", "copper_pickaxe", "copper_knife", "copper_ore"},
+            items = {"copper_ingot", "copper_shovel", "copper_hoe", "copper_hammer", "copper_pickaxe", "copper_knife", "copper_axe", "copper_ore"},
             crafting = {"smelting"}
         },
         requirements = {

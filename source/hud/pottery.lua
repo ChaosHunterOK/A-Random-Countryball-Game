@@ -2,6 +2,7 @@ local love = require "love"
 local lg = love.graphics
 local Potteryping_recipes = require("source.hud.recipes.pottery")
 local Progression = require("source.progression")
+local tweens = require("source.utils.tweens")
 
 local Pottery = {}
 
@@ -18,7 +19,13 @@ Pottery.claySlot = lg.newImage("image/bar/clay.png")
 Pottery.outputBar = lg.newImage("image/bar/give.png")
 Pottery.recipes = Potteryping_recipes.recipes
 
-local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
+function Pottery:animateToOpen(open)
+    tweens.cancelProperty(self, "anim")
+    tweens.cancelProperty(self, "bgAlpha")
+    self.timer = 0
+    tweens.to(self, "anim", open and 1 or 0, self.duration, tweens.easeInOutQuad)
+    tweens.to(self, "bgAlpha", open and 0.25 or 0, self.duration, tweens.easeInOutQuad)
+end
 
 function Pottery:resetGrid()
     for i = 1, 25 do
@@ -28,7 +35,7 @@ end
 
 function Pottery:toggle()
     self.open = not self.open
-    self.timer = 0
+    self:animateToOpen(self.open)
 
     if self.open then
         self:resetGrid()
@@ -36,16 +43,6 @@ function Pottery:toggle()
 end
 
 function Pottery:update(dt)
-    if self.open and self.anim < 1 then
-        self.timer = math.min(self.timer + dt, self.duration)
-        self.anim = easeInOutQuad(self.timer / self.duration)
-        self.bgAlpha = 0.25 * self.anim
-    elseif not self.open and self.anim > 0 then
-        self.timer = math.min(self.timer + dt, self.duration)
-        self.anim = 1 - easeInOutQuad(self.timer / self.duration)
-        self.bgAlpha = 0.25 * self.anim
-    end
-
     self.craftedItem = self:checkRecipe()
 end
 
@@ -85,7 +82,7 @@ function Pottery:draw(inventory, itemTypes)
 
     if self.craftedItem then
         local itemImg = itemTypes[self.craftedItem].img
-        local t = easeInOutQuad(self.anim)
+        local t = tweens.easeInOutQuad(self.anim)
         lg.draw(itemImg, outputX + slotW/2, outputY + slotH/2,0, scale*t, scale*t, itemImg:getWidth()/2, itemImg:getHeight()/2)
     end
 end
@@ -113,7 +110,7 @@ function Pottery:mousepressed(mx, my, btn, inventory, itemTypes, ItemsModule, co
             ItemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.craftedItem, 1)
         end
         Progression:trackItemCrafted(self.craftedItem, itemTypes)
-        Pottery.open = false
+        self:toggle()
         self:resetGrid()
         self.craftedItem = nil
         return

@@ -2,15 +2,18 @@ local Map = {}
 
 local m = math
 local sqrt, floor, sin, cos, max, min, random, abs = m.sqrt, m.floor, m.sin, m.cos, m.max, m.min, m.random, m.abs
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 local perlin = utils.fastPerlin
-local ModAPI = require("source.apis.mod_api")
+local ModAPI = require("source.api.mod")
 
 Map.chunkCfg = {size = 8, radius = 6}
 Map.tileGrid = {}
 Map.baseplateTiles = {}
 Map.heights = {}
 Map.mapSeed = os.time()
+Map.heightOffset = 0
+Map.seedOffsetX = 0
+Map.seedOffsetZ = 0
 
 local C_SCALE = 0.04
 local C_BIOME_SCALE = 0.012
@@ -45,23 +48,69 @@ Map.biomeToTexture = {
     Highlands = "stone",
     SnowPeak = "snow",
     Volcanic = "pumice",
+    RockyLand = "stone",
 }
+
+Map.subsurfaceByBiome = {
+    OceanDeep = {"sandWet", "sandWet", "stone"},
+    OceanShallow = {"sandWet", "sandWet", "stone"},
+    Beach = {"sandWet", "sandWet", "stone"},
+    Desert = {"sandWet", "sandNormal", "stone"},
+    GypsumDesert = {"sandWet", "sandGypsum", "stone"},
+    GarnetDesert = {"sandWet", "sandGarnet", "stone"},
+    OlivineDesert = {"sandWet", "sandOlivine", "stone"},
+    Lake = {"dirt_clay", "dirt", "stone"},
+    Canyon = {"stone", "shale", "stone"},
+    Plains  = {"dirt", "dirt", "stone"},
+    Grassland = {"dirt", "dirt", "stone"},
+    Forest = {"dirt", "dirt_clay", "stone"},
+    Savanna = {"dirt", "dirt", "stone"},
+    Tundra = {"dirt", "stone", "stone"},
+    Rainforest = {"dirt", "dirt_clay", "stone"},
+    Highlands = {"stone", "stone"},
+    SnowPeak = {"stone", "stone"},
+    Volcanic = {"basalt", "basalt", "stone"},
+    RockyLand = {"gravel", "stone", "stone_dark"},
+}
+
+function Map.buildSubsurface(biomeID, biomeDef)
+    local template = (biomeDef and biomeDef.subsurface) or Map.subsurfaceByBiome[biomeID]
+    if not template then return {"dirt", "stone"} end
+    local out = {}
+    for i = 1, #template do out[i] = template[i] end
+    return out
+end
 
 local function setSeed(seed)
     Map.mapSeed = tonumber(seed) or os.time()
     math.randomseed(Map.mapSeed)
     math.random(); math.random(); math.random()
+    Map.seedOffsetX = random(-100000, 100000)
+    Map.seedOffsetZ = random(-100000, 100000)
 end
 
 function Map.getChunkCoord(v)
     return floor(v / Map.chunkCfg.size)
 end
 
+local modBiomeOrder = {}
+local function refreshModBiomeOrder()
+    local n = 0
+    for id in pairs(ModAPI.biomes) do
+        n = n + 1
+        modBiomeOrder[n] = id
+    end
+    for i = n + 1, #modBiomeOrder do modBiomeOrder[i] = nil end
+    table.sort(modBiomeOrder)
+end
+
 function Map.determineBiome(h, t, h2, volc, x, z)
     local ctx = {height = h, temperature = t, humidity = h2, volcano = volc, x = x, z = z}
 
-    for id, biome in pairs(ModAPI.biomes) do
-        if biome.condition(ctx) then return id end
+    for i = 1, #modBiomeOrder do
+        local id = modBiomeOrder[i]
+        local biome = ModAPI.biomes[id]
+        if biome and biome.condition(ctx) then return id end
     end
     
     if volc > 0.96 and h > 8 then return "Volcanic" end
@@ -77,7 +126,10 @@ function Map.determineBiome(h, t, h2, volc, x, z)
         return "Desert"
     end
     
-    if h < 2.3 then return "Beach" end
+    if h < 2.3 then
+        if h2 < 0.25 then return "RockyLand" end
+        return "Beach"
+    end
     
     if h > 6.0 and h2 < 0.2 then return "Canyon" end
 
@@ -96,6 +148,9 @@ function Map.determineBiome(h, t, h2, volc, x, z)
         end
         if h2 > 0.35 then
             return "Grassland"
+        end
+        if h2 < 0.2 then
+            return "RockyLand"
         end
 
         return "Plains"
@@ -129,6 +184,9 @@ end
 function Map.createBaseplate(width, depth, seed, formatType, materials, Placements)
     formatType = formatType or "normal"
     setSeed(seed)
+    refreshModBiomeOrder()
+
+    local ox, oz = Map.seedOffsetX, Map.seedOffsetZ
 
     local nx, nz = width + 1, depth + 1
     local ffi = require("ffi")
@@ -143,7 +201,7 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
     end
     
     if formatType == "flat" then
-        for z = 0, depth do for x = 0, width do set_h(x, z, 2) end end
+        for z = 0, depth do for x = 0, width do set_h(x, z, 2 + Map.heightOffset) end end
     else
         local islands = {}
         for i = 1, 12 do
@@ -157,11 +215,11 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
 
         for z = 0, depth do
             for x = 0, width do
-                local base = getFractalNoise(x, z, 3, 0.5, C_SCALE) * 8
-                local continentalness = getFractalNoise(x, z, 4, 0.55, C_CONTINENTALNESS)
-                local erosion = getFractalNoise(x+2000, z+2000, 4, 0.5, C_EROSION)
-                local peaks = getFractalNoise(x+4000, z+4000, 5, 0.45, C_PEAKS)
-                local valley = getFractalNoise(x+6000, z+6000, 3, 0.5, C_VALLEY)
+                local base = getFractalNoise(x+ox, z+oz, 3, 0.5, C_SCALE) * 8
+                local continentalness = getFractalNoise(x+ox, z+oz, 4, 0.55, C_CONTINENTALNESS)
+                local erosion = getFractalNoise(x+ox+2000, z+oz+2000, 4, 0.5, C_EROSION)
+                local peaks = getFractalNoise(x+ox+4000, z+oz+4000, 5, 0.45, C_PEAKS)
+                local valley = getFractalNoise(x+ox+6000, z+oz+6000, 3, 0.5, C_VALLEY)
                 local dx, dz = (x / width) - 0.5, (z / depth) - 0.5
                 local dist = math.sqrt(dx*dx + dz*dz) * 2
                 local mask = math.max(0, 1.2 - dist^1.5)
@@ -173,32 +231,33 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
                         h = h + isl.height * (1 - sqrt(distSq) / isl.radius)^1.2
                     end
                 end
-                local volcanoNoise = perlin(x * C_VOLCANO_H_NOISE, z * C_VOLCANO_H_NOISE)
+                local volcanoNoise = perlin((x+ox) * C_VOLCANO_H_NOISE, (z+oz) * C_VOLCANO_H_NOISE)
                 if volcanoNoise > 0.95 then h = h + 6 + (volcanoNoise - 0.95) * 10 end
-                local lakeNoise = getFractalNoise(x+12000,z+12000,3,0.5,C_LAKE)
-                local caveMask = perlin(x * C_CAVE_MASK_NOISE, z * C_CAVE_MASK_NOISE)
+                local lakeNoise = getFractalNoise(x+ox+12000,z+oz+12000,3,0.5,C_LAKE)
+                local caveMask = perlin((x+ox) * C_CAVE_MASK_NOISE, (z+oz) * C_CAVE_MASK_NOISE)
                 if caveMask > 0.7 and h > 3 then h = h - caveMask * 2.5 end
-                local river = abs(getFractalNoise(x+9000,z+9000,4,0.5,C_RIVER))
+                local river = abs(getFractalNoise(x+ox+9000,z+oz+9000,4,0.5,C_RIVER))
                 if river < 0.04 then
                     h = h - (4.0 * (1 - (river / 0.04))) 
                 end
                 if lakeNoise > 0.68 and erosion > 0.65 and continentalness > 0.45 then
                     h = min(h, 1.6)
                 end
-                local mountainNoise = getFractalNoise(x + 15000, z + 15000, 5, 0.5, C_MOUNTAINS)
+                local mountainNoise = getFractalNoise(x+ox + 15000, z+oz + 15000, 5, 0.5, C_MOUNTAINS)
                 if mountainNoise > 0.45 then
                     local strength = ((mountainNoise - 0.45) / 0.55)^2
                     h = h + strength * 18
                 end
-                local cliff = perlin(x * C_CLIFF + 900, z * C_CLIFF + 900)
+                local cliff = perlin((x+ox) * C_CLIFF + 900, (z+oz) * C_CLIFF + 900)
                 if cliff > 0.7 then
                     h = floor(h + 0.5)
                 end
-                local plateau = getFractalNoise(x+18000,z+18000,4,0.5,C_PLATEAU)
+                local plateau = getFractalNoise(x+ox+18000,z+oz+18000,4,0.5,C_PLATEAU)
                 if plateau > 0.65 then
                     h = max(h,10)
                     h = floor(h)
                 end
+                h = h + Map.heightOffset
                 local ctx = {x = x, z = z, height = h}
                 for _, layer in ipairs(ModAPI.terrainLayers) do layer(ctx) end
                 set_h(x, z, ctx.height)
@@ -217,7 +276,7 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
             local h1, h2 = get_h(x, z), get_h(x + 1, z)
             local h3, h4 = get_h(x + 1, z + 1), get_h(x, z + 1)
             local avgH = (h1 + h2 + h3 + h4) * 0.25
-            local bNoise, tNoise, hNoise, vNoise = getBiomeNoise(x, z)
+            local bNoise, tNoise, hNoise, vNoise = getBiomeNoise(x+ox, z+oz)
             local biomeID = Map.determineBiome(avgH, tNoise, hNoise, vNoise, x, z)
             local biomeDef = ModAPI.biomes[biomeID]
             local texName
@@ -226,8 +285,13 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
             else
                 texName = Map.biomeToTexture[biomeID] or "grassNormal"
             end
-            local detailNoise = perlin(x * 0.4, z * 0.4)
+            local detailNoise = perlin((x+ox) * 0.4, (z+oz) * 0.4)
             if biomeID == "Beach" and detailNoise > 0.4 then texName = "gravel" end
+            local isLava = false
+            if biomeID == "Volcanic" and vNoise > 0.985 then
+                isLava = true
+                if materials.lava then texName = "lava" end
+            end
 
             local tile = {
                 {x, h1, z}, {x + 1, h2, z}, {x + 1, h3, z + 1}, {x, h4, z + 1},
@@ -238,7 +302,9 @@ function Map.createBaseplate(width, depth, seed, formatType, materials, Placemen
                 heights = {h1, h2, h3, h4},
                 chunkX = Map.getChunkCoord(x),
                 chunkZ = Map.getChunkCoord(z),
-                needsMesh = true
+                needsMesh = true,
+                isLava = isLava,
+                subsurface = Map.buildSubsurface(biomeID, biomeDef),
             }
             tile.texture = materials[tile.textureName] or materials.grassNormal
 

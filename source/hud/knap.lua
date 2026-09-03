@@ -2,6 +2,7 @@ local love = require "love"
 local lg = love.graphics
 local knapping_recipes = require("source.hud.recipes.knapping")
 local Progression = require("source.progression")
+local tweens = require("source.utils.tweens")
 
 local Knap = {}
 
@@ -18,7 +19,13 @@ Knap.stoneSlot = lg.newImage("image/bar/stone.png")
 Knap.outputBar = lg.newImage("image/bar/give.png")
 Knap.recipes = knapping_recipes.recipes
 
-local function easeInOutQuad(t) return t<0.5 and 2*t*t or -1+(4-2*t)*t end
+function Knap:animateToOpen(open)
+    tweens.cancelProperty(self, "anim")
+    tweens.cancelProperty(self, "bgAlpha")
+    self.timer = 0
+    tweens.to(self, "anim", open and 1 or 0, self.duration, tweens.easeInOutQuad)
+    tweens.to(self, "bgAlpha", open and 0.25 or 0, self.duration, tweens.easeInOutQuad)
+end
 
 function Knap:resetGrid()
     for i = 1, 25 do
@@ -28,7 +35,7 @@ end
 
 function Knap:toggle()
     self.open = not self.open
-    self.timer = 0
+    self:animateToOpen(self.open)
 
     if self.open then
         self:resetGrid()
@@ -36,16 +43,6 @@ function Knap:toggle()
 end
 
 function Knap:update(dt)
-    if self.open and self.anim < 1 then
-        self.timer = math.min(self.timer + dt, self.duration)
-        self.anim = easeInOutQuad(self.timer / self.duration)
-        self.bgAlpha = 0.25 * self.anim
-    elseif not self.open and self.anim > 0 then
-        self.timer = math.min(self.timer + dt, self.duration)
-        self.anim = 1 - easeInOutQuad(self.timer / self.duration)
-        self.bgAlpha = 0.25 * self.anim
-    end
-
     self.craftedItem = self:checkRecipe()
 end
 
@@ -85,7 +82,7 @@ function Knap:draw(inventory, itemTypes)
 
     if self.craftedItem then
         local itemImg = itemTypes[self.craftedItem].img
-        local t = easeInOutQuad(self.anim)
+        local t = tweens.easeInOutQuad(self.anim)
         lg.draw(itemImg, outputX + slotW/2, outputY + slotH/2,0, scale*t, scale*t, itemImg:getWidth()/2, itemImg:getHeight()/2)
     end
 end
@@ -113,7 +110,7 @@ function Knap:mousepressed(mx, my, btn, inventory, itemTypes, ItemsModule, count
             ItemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.craftedItem, 1)
         end
         Progression:trackItemCrafted(self.craftedItem, itemTypes)
-        Knap.open = false
+        self:toggle()
         self:resetGrid()
         self.craftedItem = nil
         return

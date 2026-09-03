@@ -19,10 +19,11 @@ ModAPI.hooks = {
     onTileBreak = {}
 }
 
-ModAPI.utils = require("source.utils")
+ModAPI.utils = require("source.utils.utils")
+ModAPI.tweens = require("source.utils.tweens")
 ModAPI.lib3d = require("source.projectile.lib3d")
-ModAPI.json = require("source.dkjson")
-ModAPI.transition = require("source.transition")
+ModAPI.json = require("source.utils.dkjson")
+ModAPI.transition = require("source.utils.transition")
 
 ModAPI.loadedMods = {}
 ModAPI.needsWorldReset = false
@@ -225,6 +226,7 @@ function ModAPI.loadMod(modPath)
         utils = ModAPI.utils,
         lib3d = ModAPI.lib3d,
         json = ModAPI.json,
+        tweens = ModAPI.tweens,
         transition = ModAPI.transition
     }, { __index = _G })
 

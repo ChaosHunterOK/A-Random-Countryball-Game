@@ -1,6 +1,7 @@
 local love = require "love"
 local lg = love.graphics
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
+local tweens = require("source.utils.tweens")
 local Progression = require("source.progression")
 
 local Inventory = {}
@@ -28,16 +29,6 @@ for i = 1, Inventory.maxSlots do
     Inventory.slotTimers[i] = 0
     Inventory.slotAlpha[i] = (i == 1) and 1 or 0.7
     Inventory.slotAlphaTarget[i] = Inventory.slotAlpha[i]
-end
-
-local function easeInOutBack(t)
-    local c1 = 1.70158
-    local c2 = c1 * 1.525
-    if t < 0.5 then
-        return (2*t)^2 * ((c2 + 1)*2*t - c2) / 2
-    else
-        return ((2*t - 2)^2 * ((c2 + 1)*(2*t - 2) + c2) + 2) / 2
-    end
 end
 
 function Inventory:canAddEvenIfFull(itemType, itemTypes)
@@ -94,7 +85,7 @@ function Inventory:update(dt)
         if math.abs(current - target) > 0.1 then
             local t = math.min(self.slotTimers[i] + dt, self.animDuration) / self.animDuration
             self.slotTimers[i] = self.slotTimers[i] + dt
-            local eased = easeInOutBack(t)
+            local eased = tweens.easeInOutBack(t)
             local startY = (target == -10) and 0 or -10
             self.slotYOffsets[i] = startY + (target - startY) * eased
         else

@@ -190,7 +190,64 @@ function Particles.drawSmoke(drawFunc)
     for _, p in ipairs(Particles.smokeParticles) do
         local t = p.life / p.maxLife
         local alpha = p.alpha * (t * t)
-        drawFunc(p.x, p.y, p.z, p.img, false, p.scale, p.scale, 0, alpha)
+        local img = p.img
+        if type(img) == "table" then
+            local frameIndex = math.floor((1 - t) * #img) + 1
+            frameIndex = math.max(1, math.min(frameIndex, #img))
+            img = img[frameIndex]
+        end
+        
+        drawFunc(p.x, p.y, p.z, img, false, p.scale, p.scale, 0, alpha)
+    end
+    lg.setColor(1, 1, 1, 1)
+end
+
+Particles.fireParticles = {}
+
+function Particles.spawnFire(img, x, y, z, lifetime, scale, alpha)
+    if not img then return end
+    table.insert(Particles.fireParticles, {
+        img = img,
+        x = x,
+        y = y,
+        z = z or 0,
+
+        life = lifetime or 1.5,
+        maxLife = lifetime or 1.5,
+
+        scale = scale or 1,
+        startScale = scale or 1,
+        endScale = (scale or 1) * 0.6,
+
+        alpha = alpha or 1
+    })
+end
+
+function Particles.updateFire(dt)
+    for i = #Particles.fireParticles, 1, -1 do
+        local p = Particles.fireParticles[i]
+        p.life = p.life - dt
+
+        local t = 1 - (p.life / p.maxLife)
+        p.scale = p.startScale + (p.endScale - p.startScale) * t
+
+        if p.life <= 0 then
+            table.remove(Particles.fireParticles, i)
+        end
+    end
+end
+
+function Particles.drawFire(drawFunc)
+    for _, p in ipairs(Particles.fireParticles) do
+        local t = p.life / p.maxLife
+        local alpha = p.alpha * (1 - t)
+        local img = p.img
+        if type(img) == "table" then
+            local frameIndex = math.floor((1 - t) * #img) + 1
+            frameIndex = math.max(1, math.min(frameIndex, #img))
+            img = img[frameIndex]
+        end
+        drawFunc(p.x, p.y, p.z, img, false, p.scale, p.scale, 0, alpha)
     end
     lg.setColor(1, 1, 1, 1)
 end

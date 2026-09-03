@@ -14,12 +14,24 @@ local function item(img, stack, eatable, opts)
     }
 end
 
+local function itemAbs(img, stack, eatable, opts)
+    opts = opts or {}
+    return {
+        img = img,
+        stack = stack or 10,
+        eatable = eatable or false,
+        durability = opts.durability,
+        toolType = opts.toolType,
+        material = opts.material
+    }
+end
+
 local itemDefinitions = {
     apple = item("apple.png", 10, true),
     green_apple = item("green_apple.png", 10, true),
 
     amorphous = item("amorphous.png", 1),
-    bituminous_coal = item("bituminous_coal.png", 20),
+    bituminous_coal = item("bituminous_coal.png", 20, {material = "coal"}),
     flint = item("flint.png", 20),
     iron_raw = item("iron_raw.png", 20),
     map = item("map.png", 1),
@@ -39,10 +51,11 @@ local itemDefinitions = {
     pumice = item("pumice.png", 35, false, {material = "stone"}),
     wood_planks = item("wood.png", 50, false, {material = "wood"}),
 
-    anthracite_coal = item("anthracite_coal.png", 20),
-    lignite_coal = item("lignite_coal.png", 20),
+    anthracite_coal = item("anthracite_coal.png", 20, {material = "coal"}),
+    lignite_coal = item("lignite_coal.png", 20, {material = "coal"}),
     dirt = item("dirt.png", 40),
     leaf = item("leaf.png", 50),
+    cycad_leaf = item("cycad_leaf.png", 50),
     gravel = item("gravel.png", 50),
     apple_seed = item("seeds/apple.png", 50),
     nail = item("nail.png", 50),
@@ -97,13 +110,50 @@ local itemDefinitions = {
     copper_knife = item("knife_type/copper.png", 2, false, {durability = 75, toolType = "knife", material = "copper"}),
     copper_hammer = item("hammer_type/copper.png", 2, false, {durability = 75, toolType = "hammer", material = "copper"}),
     copper_pickaxe = item("pickaxe_type/copper.png", 2, false, {durability = 75, toolType = "pickaxe", material = "copper"}),
+    stone_axe_head = item("heads/stone/axe.png", 5),
+    stone_axe = item("axe_type/stone.png", 2, false, {durability = 50, toolType = "axe", material = "stone"}),
+
+    copper_axe_head = item("heads/copper/axe.png", 5),
+    copper_axe = item("axe_type/copper.png", 2, false, {durability = 75, toolType = "axe", material = "copper"}),
+
+    iron_axe_head = item("heads/iron/axe.png", 5),
+    iron_axe = item("axe_type/iron.png", 2, false, {durability = 60, toolType = "axe", material = "iron"}),
+
+    --lumber
+    log_pile = item("log_pile.png", 20, false, {material = "wood"}),
+    clay_bowl_unfired = item("pottery/bowl.png", 4, false, {material = "clay"}),
+    clay_pot_unfired = item("pottery/pot.png", 2, false, {material = "clay"}),
+    clay_brick_unfired = item("pottery/brick.png", 50, false, {material = "clay"}),
+    clay_furnace_brick_unfired = item("pottery/furnace_brick.png", 20, false, {material = "clay"}),
+    clay_plate_unfired = item("pottery/plate.png", 10, false, {material = "clay"}),
+    clay_cup_unfired = item("pottery/cup.png", 8, false, {material = "clay"}),
+    clay_jar_unfired = item("pottery/jar.png", 2, false, {material = "clay"}),
+    --fire
+    fire_pit = itemAbs("image/structures/fire_pit.png", 5),
+    pit_kiln = itemAbs("image/structures/pit_kiln.png", 5),
 }
 
 local items = {}
 local itemTypes = {}
 
+local FALLBACK_IMG_PATH = "image/placeholder.png"
+local fallbackImg = nil
+local function loadItemImage(path)
+    local ok, imgOrErr = pcall(lg.newImage, path)
+    if ok then return imgOrErr end
+
+    if not fallbackImg then
+        local ok2, fb = pcall(lg.newImage, FALLBACK_IMG_PATH)
+        fallbackImg = ok2 and fb or nil
+    end
+    if fallbackImg then
+        print("[items] missing image '" .. tostring(path) .. "', using placeholder")
+    end
+    return fallbackImg
+end
+
 for name, def in pairs(itemDefinitions) do
-    local img = lg.newImage(def.img)
+    local img = loadItemImage(def.img)
     def.img = img
 
     items[name] = img
@@ -128,6 +178,7 @@ local materialMultiplier = {
     ceramic = 0.5,
     stick = 0.2,
     wood = 0.8,
+    coal = 1.1
 }
 local itemsOnGround = {}
 

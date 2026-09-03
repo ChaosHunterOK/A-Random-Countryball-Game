@@ -1,6 +1,6 @@
 local love = require"love"
 local lg = love.graphics
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
 
 local ok_enet, enet = pcall(require, "enet")
 

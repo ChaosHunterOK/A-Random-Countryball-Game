@@ -75,6 +75,16 @@ knapping_recipes.recipes = {
         },
         output = "javeline_stone_head"
     },
+    {
+        input = {
+            nil,  "stone",nil,   nil, nil,
+            "stone","stone", "stone","stone", nil,
+            "stone","stone", "stone", "stone", "stone",
+            "stone",   "stone",    "stone",     nil,    nil,
+            nil,   "stone",     nil,     nil,    nil,
+        },
+        output = "stone_axe_head"
+    },
 }
 
 return knapping_recipes

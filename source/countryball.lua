@@ -1,6 +1,5 @@
 local love = require "love"
 local lg = love.graphics
-local utils = require("source.utils")
 local floor, sqrt, abs, sin, cos, max, min = math.floor, math.sqrt, math.abs, math.sin, math.cos, math.max, math.min
 
 local countryball = {
@@ -44,14 +43,27 @@ local countryball = {
     skinCache = {}
 }
 
+local waterTextureNames = {
+    waterSmall = true,
+    waterMedium = true,
+    waterDeep = true,
+    lava = true,
+}
+
 function countryball.getSkinImages(name)
-    if not name or name == "default" then name = "countryball" end
+    if not name then name = "countryball" end
+    if name == "default" then name = "countryball" end
     if countryball.skinCache[name] then
         return countryball.skinCache[name]
     end
 
+    local builtinPaths = {
+        countryball = "image/countryball/senegal/",
+        remake = "image/countryball/senegal-remake/",
+    }
+
     local path = "skins/" .. name .. "/"
-    local defaultPath = "image/countryball/senegal/"
+    local defaultPath = builtinPaths[name] or builtinPaths.countryball
     if not love.filesystem.getInfo(path, "directory") then
         path = defaultPath
     end
@@ -226,23 +238,15 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Placeme
         exhaustionIncrease = exhaustionIncrease + 0.5 * dt
     end
 
-    local tile = nil
+    local tile
     if getTileAt then
-        tile = getTileAt(countryball.x, countryball.z)
+        tile = getTileAt(floor(countryball.x), floor(countryball.z))
     end
 
     do
-        local tile = getTileAt(floor(countryball.x), floor(countryball.z))
         if tile and not tile.isAir then
             local avgY = (tile[1][2] + tile[2][2] + tile[3][2] + tile[4][2]) * 0.25
-            local waterMaterials = {waterSmall=true, waterMedium=true, waterDeep=true, lava=true}
-            local isWaterTile = false
-            for name,_ in pairs(waterMaterials) do
-                if materials[name] == tile.texture then
-                    isWaterTile = true
-                    break
-                end
-            end
+            local isWaterTile = waterTextureNames[tile.textureName] or false
             countryball.inWater = isWaterTile and countryball.y <= avgY + 0.5
         else
             countryball.inWater = false

@@ -1,12 +1,13 @@
 local love = require("love")
 local lg = love.graphics
-local utils = require("source.utils")
+local utils = require("source.utils.utils")
+local tweens = require("source.utils.tweens")
 local countryball = require("source.countryball")
 local base_width, base_height = 1000, 525
 local stage = lg.newImage("image/stage.png")
 
 local SkinsMenu = {
-    skins = {"default"},
+    skins = {"default", "remake"},
     selected = 1,
     loadedSkinName = "countryball",
     animStates = {},
@@ -16,27 +17,29 @@ local SkinsMenu = {
     itemSpacing = 60
 }
 
-local function expEase(current, target, speed, dt)
-    return current + (target - current) * math.min(dt * speed, 1)
-end
+local expEase = tweens.expEase
 
 local SKIN_FOLDER = "skins"
 love.filesystem.createDirectory(SKIN_FOLDER)
 
 function SkinsMenu.load()
-    SkinsMenu.skins = {"default"}
+    SkinsMenu.skins = {"default", "remake"}
     local entries = love.filesystem.getDirectoryItems(SKIN_FOLDER)
 
     for _, folder in ipairs(entries) do
         local full = SKIN_FOLDER .. "/" .. folder
         if love.filesystem.getInfo(full, "directory") then
-            table.insert(SkinsMenu.skins, folder)
+            if folder ~= "default" and folder ~= "remake" then
+                table.insert(SkinsMenu.skins, folder)
+            end
         end
     end
 
     table.sort(SkinsMenu.skins, function(a, b)
         if a == "default" then return true end
         if b == "default" then return false end
+        if a == "remake" then return true end
+        if b == "remake" then return false end
         return a < b
     end)
 
@@ -60,12 +63,14 @@ function SkinsMenu:update(dt)
     end
     if self.ejectingSkin then
         local e = self.ejectingSkin
-        e.vy = e.vy + e.gravity * dt
-        e.x = e.x + e.vx * dt
-        e.y = e.y + e.vy * dt
-        e.angle = e.angle + e.vr * dt
-        if e.y > love.graphics.getHeight() + 100 then
-            self.ejectingSkin = nil
+        if e then
+            e.vy = (e.vy or 0) + (e.gravity or 0) * dt
+            e.x = (e.x or 0) + (e.vx or 0) * dt
+            e.y = (e.y or 0) + (e.vy or 0) * dt
+            e.angle = (e.angle or 0) + (e.vr or 0) * dt
+            if e.y > love.graphics.getHeight() + 100 then
+                self.ejectingSkin = nil
+            end
         end
     end
 end
@@ -107,8 +112,10 @@ function SkinsMenu:draw()
 
     if self.ejectingSkin then
         local e = self.ejectingSkin
-        lg.setColor(1, 1, 1, 1)
-        lg.draw(e.img, e.x, e.y, e.angle, -2, 2, e.img:getWidth()/2, e.img:getHeight()/2)
+        if e and e.img then
+            lg.setColor(1, 1, 1, 1)
+            lg.draw(e.img, e.x, e.y, e.angle, -2, 2, e.img:getWidth()/2, e.img:getHeight()/2)
+        end
     end
     
     utils.drawTextWithBorder("SKINS", base_width/2 - 40, 40)
@@ -120,7 +127,7 @@ function SkinsMenu:draw()
             local y = startY + (drawIndex-1) * spacing
             local x = 25 + (anim and anim.offset or 0)
             local col = (i == self.selected) and {1, 1, 0} or {1, 1, 1}
-            local label = (s == "default") and "Senegal (Default)" or s
+            local label = (s == "default") and "Senegal (Default)" or (s == "remake") and "Senegal Remake" or s
 
             lg.push()
             utils.drawTextWithBorder(label, x, y, screenW, "left", {0, 0, 0}, col)

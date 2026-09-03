@@ -12,6 +12,7 @@ local src = "source."
 local hud = src.."hud."
 local proj = src.."projectile."
 local menu = src.."menus."
+local utl = src.."utils."
 
 local imgF = "image/"
 local lastMouseX, lastMouseY = love.mouse.getPosition()
@@ -29,47 +30,58 @@ local Achievement = require(hud.."achievement")
 local Progression = require(src.."progression")
 local verts = require(proj.."verts")
 local Props = require(src.."props")
-local utils = require(src.."utils")
+local utils = require(utl.."utils")
+local tweens = require(utl.."tweens")
 local Collision = require(src.."collision")
 local OptMenu = require(menu.."options")
 local SkinsMenu = require(menu.."skins")
 local ModsMenu = require(menu.."mods")
 local CreditsMenu = require(menu.."credits")
+local HelpMenu = require(menu.."help")
 MultiplayerMenu = require(menu.."multiplayer")
-local ModAPI = require(src.."apis.mod_api")
+local ModAPI = require(src.."api.mod")
 local Cursor = require(hud.."cursor")
 local healthBar = require(hud.."health_bar")
 local hungerBar = require(hud.."hunger_bar")
-Mapsave = require(proj.."mapsave")
+Mapsave = require(proj.."map.save")
 local Particles = require(proj.."particles")
 local skyBox = require(proj.."skybox")
 local nightCycle = require(proj.."night_cycle")
 local Audio = require(src.."audio")
-local Console = require(src.."console")
-local Transition = require("source.transition")
-local Map = require(proj.."map")
-local MultiplayerAPI = require(src.."apis.multiplayer_api")
+local Console = require(utl.."console")
+local Transition = require(utl.."transition")
+local Map = require(proj.."map.map")
+local Preview = require(proj.."map.preview")
+local MultiplayerAPI = require(src.."api.multiplayer")
 local Placements = require(proj.."placements")
+local Structures = require(src.."structures")
+local StructureUI = require(hud.."structure")
 
 local visible_idk = {cursor = true, skyBox = false}
 local clamp = utils.clamp
 
 local particlesImgs = {
-    smoke = lg.newImage(imgF.."smoke.png"),
-    fire = lg.newImage(imgF.."placeholder.png"),
+    smoke = lg.newImage(imgF.."particles/smoke.png"),
+    fire = {
+        lg.newImage(imgF.."particles/fire/1.png"),
+        lg.newImage(imgF.."particles/fire/2.png"),
+        lg.newImage(imgF.."particles/fire/3.png"),
+    },
 }
 local breakHitParticleOpts = {
     radius = 0.05,
-    speedMin = 0.8,
-    speedMax = 1.5,
+    speedMin = 0.2,
+    speedMax = 0.5,
     upwardBias = 0.15,
-    lifetimeMin = 0.20,
-    lifetimeMax = 0.45,
+    lifetimeMin = 0.5,
+    lifetimeMax = 0.8,
     scaleMin = 0.08,
     scaleMax = 0.16,
-    alpha = 1
+    alpha = 1,
+    gravity = 2,
+    rise = -1,
 }
-
+monochromeShader = love.graphics.newShader("shaders/monochrome.glsl")
 local breakParticleOpts = {
     radius = 0.08,
     speedMin = 1.8,
@@ -90,7 +102,7 @@ local renderDistance = chunkCfg.size * chunkCfg.radius
 local renderDistanceSq = renderDistance * renderDistance
 
 local bw, bh= 195, 195
-local menuItems = {"Play", "Multiplayer", "Mods", "Skins", "Options", "Credits", "Quit"}
+local menuItems = {"Play", "Multiplayer", "Mods", "Skins", "Options", "Credits", "Help", "Quit"}
 local selectedIndex, menuX, menuSpacing = 1, 20, base_height / 8
 local menuCamX, menuCamZ, menuTargetCamX, menuTargetCamZ = 50, 50, 50, 50
 
@@ -101,6 +113,11 @@ local currentWorldName = nil
 
 local pauseItems, pauseSelected = {"Resume", "Options", "Leave"}, 1
 local pauseSmooth = 10
+
+playerIsDead = false
+local gameOverItems, gameOverSelected = {"Respawn", "Main Menu"}, 1
+local gameOverAnim = 0
+local deathAge = nil
 local prevGamestate = nil
 
 local autosaveInterval, autosaveTimer = 30, 0
@@ -166,6 +183,7 @@ end
 
 function refreshWorldList()
     worldList = {}
+    Preview:clearCache()
     local items = love.filesystem.getDirectoryItems(Mapsave.saveFolder)
     for _, name in ipairs(items) do
         local info = love.filesystem.getInfo(Mapsave.saveFolder .. "/" .. name .. "/mapsave.json")
@@ -181,8 +199,9 @@ end
 
 function createNewWorld(name)
     local nm = name or ("World_" .. tostring(os.time()))
+    Map.mapSeed = love.math.random(1, 2147483646)
     regenerateMap(bh, bw, Map.mapSeed)
-    Mapsave.save(Map.baseplateTiles, materials, nm)
+    Mapsave.save(Map.baseplateTiles, materials, nm, {seed = Map.mapSeed})
     currentWorldName = nm
     --Placements.baseTiles = baseplateTiles
     
@@ -204,10 +223,14 @@ function createNewWorld(name)
     
     Placements.placed = {}
     Props.clearProps()
-    Props.spawnProps(550, bw, bh, getTileAt)
+    Props.spawnProps(1000, bw, bh, getTileAt)
     Mapsave.savePlacements(Placements.placed, nm)
     Mapsave.saveProps(Props.props, nm)
-    
+
+    Structures.clear()
+    Mapsave.saveStructures(Structures.serialize(), nm)
+
+    playerIsDead = false
     updateTileMeshes(true)
     gamestate = "game"
 end
@@ -279,7 +302,10 @@ function loadWorld(name)
             Props.clearProps()
             Props.spawnProps(550, bw, bh, getTileAt)
         end
-        
+
+        Structures.deserialize(Mapsave.loadStructures(name))
+
+        playerIsDead = false
         updateTileMeshes(true)
         gamestate = "game"
     end
@@ -296,6 +322,37 @@ local function deleteWorld(name)
         pcall(function() love.filesystem.remove(folder) end)
     end
     refreshWorldList()
+end
+
+function triggerGameOver()
+    playerIsDead = true
+    deathAge = Progression:getCurrentAge()
+    gameOverSelected = 1
+    gameOverAnim = 0
+    love.mouse.setVisible(true)
+    Transition.startFade(0.6, function()
+        gamestate = "gameover"
+    end)
+end
+
+function respawnPlayer()
+    healthBar:setHealth(healthBar.maxHealth)
+    hungerBar:setHunger(hungerBar.maxHunger)
+    countryball.hunger = hungerBar.maxHunger
+    countryball.hungerExhaustion = 0
+    countryball.isDamaged = false
+    countryball.starveTimer = 0
+    countryball.velocityX, countryball.velocityZ, countryball.velocityY = 0, 0, 0
+
+    local sx, sz = floor(bw / 2), floor(bh / 2)
+    countryball.x, countryball.z = sx, sz
+    countryball.y = getSafeSpawnY(sx, sz)
+
+    playerIsDead = false
+    love.mouse.setVisible(false)
+    Transition.startFade(0.6, function()
+        gamestate = "game"
+    end)
 end
 
 local dirtTimers = {}
@@ -372,10 +429,13 @@ end
 local function isCursorOverInteractive(mx, my)
     mx = mx or love.mouse.getX()
     my = my or love.mouse.getY()
+    if Structures.getAtScreen(mx, my) then
+        return true
+    end
     for _, item in ipairs(itemsOnGround) do
         local sx, sy2, z2 = camera:project3D(item.x, item.y, item.z)
         if sx and z2 > 0 then
-            local scale = (1 / z2) * 6
+            local scale = lib3d.getProjectionScale(z2, 1, 1, 6)
             local img = ItemsModule.getItemImage(item.type)
             if img then
                 local w, h = img:getWidth(), img:getHeight()
@@ -395,7 +455,7 @@ local function isCursorOverInteractive(mx, my)
                 local sx, sy2, z2 = camera:project3D(px, py, pz)
                 if sx and z2 > 0 then
                     local w, h = img:getWidth(), img:getHeight()
-                    local scale = (camera.hw / z2) * camera.zoom * 0.0025 * 3.0
+                    local scale = lib3d.getProjectionScale(z2, camera.hw, camera.zoom, 0.0025 * 3.0)
                     if prop.scale then scale = scale * prop.scale end
                     local left, top = sx - w/2 * scale, sy2 - h * scale
                     local right, bottom = left + w * scale, top + h * scale
@@ -561,6 +621,17 @@ local function hasCorrectTool(selected, matName)
     return required and itemDef.toolType == required
 end
 
+function iAmMad(dt)
+    autosaveTimer = autosaveTimer + dt
+    if autosaveTimer >= autosaveInterval and currentWorldName then
+        Mapsave.saveCountryball(countryball, currentWorldName)
+        Mapsave.saveInventory(Inventory, currentWorldName)
+        Mapsave.savePlacements(Placements.placed, currentWorldName)
+        Mapsave.saveStructures(Structures.serialize(), currentWorldName)
+        autosaveTimer = 0
+    end
+end
+
 function love.mousepressed(mx, my, button)
     if ModAPI.runHooks("onMousePressed", mx, my, button) then return end
     if gamestate == "options" then
@@ -568,24 +639,37 @@ function love.mousepressed(mx, my, button)
     end
     if pauseOpen or gamestate ~= "game" then return end
 
-    Inventory:mousepressed(mx, my, button, itemTypes)
-    local slot = Inventory:getSelected()
-
     if Crafting.open then
         Crafting:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+        Inventory:mousepressed(mx, my, button, itemTypes)
         return
     end
 
     if Knapping.open then
-        Knapping.timer = (Knapping.timer or 0) + love.timer.getDelta()
-        if Knapping.timer >= 0.1 then
-            Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
-        end
+        Knapping:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
         return
     end
 
     if Pottery.open then
         Pottery:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
+        return
+    end
+
+    Inventory:mousepressed(mx, my, button, itemTypes)
+    local slot = Inventory:getSelected()
+
+    if button == 2 and slot and slot.type == "firestarter" then
+        local structure = Structures.getAtScreen(mx, my)
+        if structure then
+            if Structures.tryIgnite(structure) then
+                damageSelectedItem(1)
+            end
+            return
+        end
+    end
+
+    if StructureUI.open then
+        StructureUI:mousepressed(mx, my, button, Inventory, itemTypes, ItemsModule, countryball)
         return
     end
 
@@ -596,9 +680,7 @@ function love.mousepressed(mx, my, button)
             overInteractive = isCursorOverInteractive(mx, my)
             if not overInteractive then
                 slot.count = slot.count - 1
-                Knapping.open = true
-                Knapping:resetGrid()
-                Knapping.timer = 0
+                Knapping:toggle()
                 if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
                 return
             end
@@ -606,9 +688,7 @@ function love.mousepressed(mx, my, button)
             if overInteractive == nil then overInteractive = isCursorOverInteractive(mx, my) end
             if not overInteractive then
                 slot.count = slot.count - 1
-                Pottery.open = true
-                Pottery:resetGrid()
-                Pottery.timer = 0
+                Pottery:toggle()
                 if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
                 return
             end
@@ -626,12 +706,39 @@ function love.mousepressed(mx, my, button)
             damageSelectedItem(1)
             return
         elseif slot.type == "firestarter" then
+            local structure = Structures.getAtScreen(mx, my)
+            if structure then
+                if Structures.tryIgnite(structure) then
+                    damageSelectedItem(1)
+                end
+                return
+            end
+
             local tile, cx, cy, cz = getTileUnderCursor(mx, my)
             if tile then
                 for i = 1, 10 do
                     Particles.spawnSmoke(particlesImgs.smoke, cx, cy + 0.5, cz)
                 end
                 damageSelectedItem(1)
+            end
+            return
+        elseif Structures.fuelValue(slot.type) then
+            local structure = Structures.getAtScreen(mx, my)
+            if structure then
+                local used = Structures.addFuel(structure, slot.type, 1)
+                if used > 0 then
+                    slot.count = slot.count - used
+                    if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+                end
+                return
+            end
+        elseif slot.type == "fire_pit" or slot.type == "pit_kiln" then
+            local tile, cx, cy, cz = getTileUnderCursor(mx, my)
+            if tile and not Structures.getAtScreen(mx, my) then
+                local px, pz = floor(cx) + 0.5, floor(cz) + 0.5
+                Structures.place(slot.type, px, cy, pz)
+                slot.count = slot.count - 1
+                if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
             end
             return
         end
@@ -654,6 +761,14 @@ function love.mousepressed(mx, my, button)
             MultiplayerAPI.sendPropPlant(cx, cz)
             slot.count = slot.count - 1
             if slot.count <= 0 then Inventory.items[Inventory.selectedSlot] = nil end
+            return
+        end
+    end
+
+    if button == 1 then
+        local structure = Structures.getAtScreen(mx, my)
+        if structure then
+            StructureUI:openFor(structure)
             return
         end
     end
@@ -691,14 +806,14 @@ function love.mousepressed(mx, my, button)
                     br.max = Placements.durabilities[matName] or 3
                 else
                     br.progress = br.progress + multiplier
-                    Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.5, tile.z, 3, breakHitParticleOpts)
+                    Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.2, tile.z, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
                         ModAPI.runHooks("onBlockBreak", tile, matName)
                         if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
                             ItemsModule.dropItem(tile.x, tile.y + 1, tile.z, matName, 1, nil, 0)
                         end
 
-                        Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.5, tile.z, 10, breakParticleOpts)
+                        Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.2, tile.z, 10, breakParticleOpts)
 
                         for idx = #Placements.placed, 1, -1 do
                             if Placements.placed[idx] == tile then
@@ -723,7 +838,7 @@ function love.mousepressed(mx, my, button)
                     br.max = Placements.durabilities[matName] or 3
                 else
                     br.progress = br.progress + multiplier
-                    Particles.spawnBurst(materials[matName], cx, cy + 0.5, cz, 3, breakHitParticleOpts)
+                    Particles.spawnBurst(materials[matName], cx, cy + 0.2, cz, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
                         if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
                             if matName == "dirt_clay" then
@@ -735,7 +850,7 @@ function love.mousepressed(mx, my, button)
                         end
                         ModAPI.runHooks("onTileBreak", tile, matName, cx, cy, cz)
 
-                        Particles.spawnBurst(materials[matName], cx, cy + 0.5, cz, 10, breakParticleOpts)
+                        Particles.spawnBurst(materials[matName], cx, cy - 0.5, cz, 8, breakParticleOpts)
 
                         breakTileAt(floor(tile[1][1]), floor(tile[1][3]))
                         br.tile = nil
@@ -770,17 +885,11 @@ function love.mousereleased(mx, my, button)
         OptMenu:mousereleased(mx, my, button)
     end
     if gamestate == "game" then
-        if not Crafting.open then
-            Inventory:mousereleased(mx, my, button, ItemsModule, countryball)
-        else
-            --Crafting:mousereleased(mx, my, button, Inventory)
-        end
+        Inventory:mousereleased(mx, my, button, ItemsModule, countryball, Crafting.open and Crafting or nil)
     end
 end
 
-local function expEase(current, target, speed, dt)
-    return current + (target - current) * (1 - math.exp(-speed * dt))
-end
+local expEase = tweens.expEase
 
 local title = {
     x = base_width + 400,
@@ -809,6 +918,7 @@ function love.update(dt)
     --Audio.update(dt)
     Transition.update(dt)
     Cursor.update(dt)
+    tweens.update(dt)
     if ModAPI.applyChanges() then
         print("Mods changed, regenerating world...")
         initializeMaterials()
@@ -894,32 +1004,31 @@ function love.update(dt)
             nightCycle.update(dt)
             verts.setTime(nightCycle.time)
             Particles.updateSmoke(dt)
+            Particles.updateFire(dt)
             Achievement:update(dt)
             updateDirtToGrass(dt)
             local dtSpeed = camera.speed * dt
             local lki = love.keyboard.isDown
             if camera.free then
+                local forward = camera:getForward()
+                local right = camera:getRight()
                 if lki("w") then
-                    local f = camera:getForward()
-                    camera.x = camera.x + f.x * dtSpeed
-                    camera.y = camera.y + f.y * dtSpeed
-                    camera.z = camera.z + f.z * dtSpeed
+                    camera.x = camera.x + forward.x * dtSpeed
+                    camera.y = camera.y + forward.y * dtSpeed
+                    camera.z = camera.z + forward.z * dtSpeed
                 end
                 if lki("s") then
-                    local f = camera:getForward()
-                    camera.x = camera.x - f.x * dtSpeed
-                    camera.y = camera.y - f.y * dtSpeed
-                    camera.z = camera.z - f.z * dtSpeed
+                    camera.x = camera.x - forward.x * dtSpeed
+                    camera.y = camera.y - forward.y * dtSpeed
+                    camera.z = camera.z - forward.z * dtSpeed
                 end
                 if lki("a") then
-                    local r = camera:getRight()
-                    camera.x = camera.x - r.x * dtSpeed
-                    camera.z = camera.z - r.z * dtSpeed
+                    camera.x = camera.x - right.x * dtSpeed
+                    camera.z = camera.z - right.z * dtSpeed
                 end
                 if lki("d") then
-                    local r = camera:getRight()
-                    camera.x = camera.x + r.x * dtSpeed
-                    camera.z = camera.z + r.z * dtSpeed
+                    camera.x = camera.x + right.x * dtSpeed
+                    camera.z = camera.z + right.z * dtSpeed
                 end
                 local dx, dy = mx - lastMouseX, my - lastMouseY
                 camera.yaw = camera.yaw - dx * camera.sensitivity
@@ -948,6 +1057,9 @@ function love.update(dt)
             if mainSource and not mainSource:isPlaying() then mainSource:play() end
             healthBar:update(dt)
             hungerBar:update(dt)
+            if healthBar.health <= 0 and not playerIsDead then
+                triggerGameOver()
+            end
             Knapping:update(dt)
             mobs.update(dt, getTileAt)
             local cue = Collision.updateEntity
@@ -964,15 +1076,13 @@ function love.update(dt)
             Inventory:update(dt)
             Crafting:update(dt)
             Pottery:update(dt)
+            StructureUI:update(dt)
+            Structures.update(dt)
             Props.updateProps(dt)
+            Props.updateCactusContact(countryball, dt)
             Particles.updateSmoke(dt)
-            autosaveTimer = autosaveTimer + dt
-            if autosaveTimer >= autosaveInterval and currentWorldName then
-                Mapsave.saveCountryball(countryball, currentWorldName)
-                Mapsave.saveInventory(Inventory, currentWorldName)
-                Mapsave.savePlacements(Placements.placed, currentWorldName)
-                autosaveTimer = 0
-            end
+            Particles.updateFire(dt)
+            iAmMad(dt)
             countryball.networkSync(MultiplayerMenu, dt)
             countryball.updateRemotePlayers(dt)
         end
@@ -1010,11 +1120,31 @@ function getTileUnderCursor(mx, my, maxDistance)
             local surfY = lib3d.bilinearInterpolate(t1[2], t2[2], t4[2], t3[2], fx, fz)
             local diff = wy - surfY
 
+            local minY = math.min(0, t1[2], t2[2], t3[2], t4[2])
+            local maxY = math.max(tile.height or 0, t1[2], t2[2], t3[2], t4[2])
+            local hitAABB = false
+            local hitT = nil
+            if maxY > minY then
+                local intersects, tmin = lib3d.rayAABBIntersect(px, py, pz, rdx, rdy, rdz,
+                    gridX, minY, gridZ,
+                    gridX + 1, maxY, gridZ + 1,
+                    maxDistance)
+                if intersects and tmin >= 0 and tmin <= maxDistance then
+                    hitAABB = true
+                    hitT = tmin
+                end
+            end
+
+            if hitAABB then
+                local hx, hy, hz = px + rdx * hitT, py + rdy * hitT, pz + rdz * hitT
+                return tile, hx, hy, hz, "terrain"
+            end
+
             if tile == prevTile and prevDiff and ((prevDiff >= 0 and diff <= 0) or (prevDiff <= 0 and diff >= 0)) then
                 local denom = prevDiff - diff
                 local frac = (denom ~= 0) and (prevDiff / denom) or 0
-                local hitT = t - step + step * frac
-                local hx, hy, hz = px + rdx*hitT, py + rdy*hitT, pz + rdz*hitT
+                local hitT2 = t - step + step * frac
+                local hx, hy, hz = px + rdx * hitT2, py + rdy * hitT2, pz + rdz * hitT2
                 return tile, hx, hy, hz, "terrain"
             end
 
@@ -1072,6 +1202,7 @@ function drawTiles()
     addToQueue(countryball, "player")
     for _, rp in pairs(countryball.remotePlayers) do addToQueue(rp, "remotePlayer") end
     for i = 1, #placementEntries do addToQueue(placementEntries[i], "placement") end
+    for _, st in ipairs(Structures.placed) do addToQueue(st, "structure") end
 
     table.sort(renderQueue, function(a, b)
         return a.dist > b.dist
@@ -1102,17 +1233,20 @@ function drawTiles()
             if img then drawWithStencil(e.x, e.y, e.z, img, e.flip) end
         elseif entry.kind == "mob" then
             mobs.draw(drawWithStencil, e)
+        elseif entry.kind == "structure" then
+            Structures.drawOne(e, drawWithStencil)
         end
     end
 
     Particles.drawSmoke(drawWithStencil)
+    Particles.drawFire(drawWithStencil)
 
     ModAPI.runHooks("draw")
     lg.setDepthMode("lequal", true)
 end
 
 local function drawPlacementGhost(cx, cy, cz)
-    if pauseOpen or Crafting.open or Knapping.open or Pottery.open then return end
+    if pauseOpen or Crafting.open or Knapping.open or Pottery.open or StructureUI.open then return end
 
     local slot = Inventory:getSelected()
     if not slot or not placementPlacables[slot.type] then return end
@@ -1149,7 +1283,7 @@ function mainGame()
     if tile then
         local sx, sy, sz = camera:project3D(cx, cy + 0.05, cz)
         if sx then
-            local scale = (camera.hw / sz) * camera.zoom * 0.05
+            local scale = lib3d.getProjectionScale(sz, camera.hw, camera.zoom, 0.05)
             lg.setColor(1, 0, 0, 0.6)
             lg.circle("line", sx, sy, scale)
             lg.setColor(1, 1, 1, 1)
@@ -1162,6 +1296,7 @@ function mainGame()
     Crafting:draw(Inventory, itemTypes, items)
     Knapping:draw(Inventory, itemTypes)
     Pottery:draw(Inventory, itemTypes)
+    StructureUI:draw(Inventory, itemTypes)
     if not Knapping.open and not Pottery.open then
         Inventory:draw(itemTypes)
     end
@@ -1203,7 +1338,7 @@ function menuScreen()
     lg.draw(gradientUhh, 0, 0)
 
     local maxPerRow = 2
-    local buttonWidth = 150
+    local buttonWidth = 170
     local buttonHeight = 40
     local spacingX = 20
     local spacingY = 30
@@ -1222,9 +1357,8 @@ function menuScreen()
         local y = startY + row * (buttonHeight + spacingY)
 
         local isSelected = (i == selectedIndex)
-        local boxColor = {0, 0, 0, 0.5}
         local textColor = isSelected and {1, 1, 0} or {1, 1, 1}
-        lg.setColor(boxColor)
+        lg.setColor(0, 0, 0, 0.5)
         lg.rectangle("fill", x, y, buttonWidth, buttonHeight)
         lg.setColor(1, 1, 1)
         utils.drawTextWithBorder(text,x,y + buttonHeight/2 - font:getHeight()/2,buttonWidth,"center",{0, 0, 0},textColor)
@@ -1237,20 +1371,22 @@ function menuScreen()
     lg.translate(title.x + titleImage:getWidth()/2, title.y + title.float + titleImage:getHeight()/2)
     lg.rotate(title.rot)
     lg.scale(title.scale, title.scale)
-    lg.draw(titleImage, -titleImage:getWidth()/2, -titleImage:getHeight()/2)
+    lg.draw(titleImage, -titleImage:getWidth()/2 + 20, -titleImage:getHeight()/2)
     lg.pop()
 end
 
 local function worldSelectScreen()
     drawTiles()
     lg.setDepthMode()
+    lg.setColor(0, 0, 0, 0.5)
+    lg.rectangle("fill", 0, 0, 370, base_height - 50)
+    lg.setColor(1, 1, 1)
     utils.drawTextWithBorder("Select World", 50, 30)
 
     local startY = 80
     local spacing = 35
-
     if #worldList == 0 then
-        utils.drawTextWithBorder("No worlds found. Press 'C' to create.", 50, startY, {1, 0.5, 0.5})
+        utils.drawTextWithBorder("No worlds found. Press 'C' to create.", 50, startY)
     else
         for i, name in ipairs(worldList) do
             local isSelected = (i == selectedWorldIndex)
@@ -1258,13 +1394,61 @@ local function worldSelectScreen()
             local displayName = isSelected and ("> " .. name) or ("  " .. name)
             local textColor = isSelected and {1, 1, 0} or {0.8, 0.8, 0.8}
             
-            utils.drawTextWithBorder(displayName, 60, yPos, base_width, "left", {0, 0, 0}, textColor)
+            utils.drawTextWithBorder(displayName, 45, yPos, base_width, "left", {0, 0, 0}, textColor)
         end
     end
-    lg.setColor(1, 1, 1, 0.8) 
+    local previewX, previewY = 405, 65
+    local previewWidth, previewHeight = base_width - previewX - 35, base_height - 150
+    lg.setColor(0, 0, 0, 0.65)
+    lg.rectangle("fill", previewX, previewY, previewWidth, previewHeight)
+    lg.setColor(1, 1, 1, 0.9)
+    utils.drawTextWithBorder("Map Preview", previewX + 20, previewY + 15)
+    if worldList[selectedWorldIndex] then
+        Preview:draw(worldList[selectedWorldIndex], previewX + 10, previewY + 55, previewWidth - 20, previewHeight - 65)
+    end
+    lg.setColor(1, 1, 1, 0.8)
+    lg.rectangle("line", previewX + 10, previewY + 55, previewWidth - 20, previewHeight - 65)
+    lg.setColor(0, 0, 0, 0.65)
+    lg.rectangle("fill", 0, base_height - 50, base_width, 100)
+    lg.setColor(1, 1, 1)
+    lg.setColor(1, 1, 1, 0.65)
     local footerText = "[Enter] Play  |  [C] Create  |  [D] Delete  |  [Esc] Back"
-    utils.drawTextWithBorder(footerText, 20, base_height - 40)
+    utils.drawTextWithBorder(footerText, 20, base_height - 35)
     lg.setColor(1, 1, 1, 1)
+end
+
+local function gameOverScreen()
+    lg.setColor(0.2, 0.2, 0.2)
+    lg.rectangle("fill", 0, 0, base_width, base_height)
+    lg.setColor(1, 1, 1, 1)
+    lg.setShader(monochromeShader)
+    lg.setDepthMode("lequal", true)
+    drawTiles()
+    lg.setDepthMode()
+    lg.setShader()
+
+    local dt = love.timer.getDelta() * 1.5
+    gameOverAnim = expEase(gameOverAnim, 1, 1, dt)
+    local alpha = 0.75 * gameOverAnim
+
+    lg.setColor(0, 0, 0, alpha)
+    lg.rectangle("fill", 0, 0, base_width, base_height)
+    lg.setColor(1, 1, 1, 1)
+
+    local slideOffset = (1 - gameOverAnim) * 40
+    utils.drawTextWithBorder("YOU DIED", 0, base_height * 0.25 + slideOffset, base_width, "center", {0, 0, 0, gameOverAnim}, {0.9, 0.15, 0.15, gameOverAnim})
+    if deathAge then
+        utils.drawTextWithBorder("Reached: " .. deathAge.name, 0, base_height * 0.25 + 40 + slideOffset, base_width, "center", {0, 0, 0, gameOverAnim}, {1, 1, 1, gameOverAnim})
+    end
+
+    local startY = base_height * 0.45
+    local spacing = menuSpacing * 0.9
+    for i, text in ipairs(gameOverItems) do
+        local y = startY + (i - 1) * spacing + slideOffset
+        local isSelected = (i == gameOverSelected)
+        local textColor = isSelected and {1, 1, 0, gameOverAnim} or {1, 1, 1, gameOverAnim}
+        utils.drawTextWithBorder(text, 0, y, base_width, "center", {0, 0, 0, gameOverAnim}, textColor)
+    end
 end
 
 function love.draw()
@@ -1272,6 +1456,8 @@ function love.draw()
     lg.clear(r, g, b, 1, true, true)
     if gamestate == "game" then
         mainGame()
+    elseif gamestate == "gameover" then
+        gameOverScreen()
     elseif gamestate == "menu" then
         menuScreen()
     elseif gamestate == "worldselect" then
@@ -1288,6 +1474,9 @@ function love.draw()
     elseif gamestate == "credits" then
         drawTiles()
         CreditsMenu:draw()
+    elseif gamestate == "help" then
+        drawTiles()
+        HelpMenu:draw()
     elseif gamestate == "multiplayer" then
         drawTiles()
         MultiplayerMenu:draw()
@@ -1300,13 +1489,12 @@ function love.draw()
     end
 end
 function love.load()
-    love.window.setMode(base_width, base_height, {resizable=true, vsync=true, depth = 24, stencil = 8, msaa = 0, highdpi = false})
     camera:updateProjectionConstants(love.graphics.getDimensions())
     Console:installGlobalHooks()
     print("i guess bro")
-    love.window.setTitle("A Random Countryball Game")
     love.window.setIcon(love.image.newImageData("icon/icon.png"))
     initializeMaterials()
+    Preview:configure({mapsave = Mapsave, camera = camera, verts = verts, materials = materials})
     local loaded, loadedTileGrid, meta = Mapsave.load(materials)
     if loaded then
         Map.baseplateTiles = loaded
@@ -1339,12 +1527,14 @@ function love.load()
             Props.loadSavedProps(savedProps)
         else
             Props.clearProps()
-            Props.spawnProps(550, bw, bh, getTileAt)
+            Props.spawnProps(1000, bw, bh, getTileAt)
         end
+
+        Structures.deserialize(Mapsave.loadStructures(currentWorldName))
     else
         Map.createBaseplate(bw, bh, Map.mapSeed, "normal", materials, Placements)
         Props.clearProps()
-        Props.spawnProps(550, bw, bh, getTileAt)
+        Props.spawnProps(1000, bw, bh, getTileAt)
     end
     mobs.spawn("racoon_dog", 14, 14, getTileAt)
     Cursor.load()
@@ -1455,6 +1645,10 @@ function love.keypressed(key)
                 Transition.startFade(0.5, function()
                     gamestate = "credits"
                 end)
+            elseif selected == "Help" then
+                Transition.startFade(0.5, function()
+                    gamestate = "help"
+                end)
             elseif selected == "Quit" then
                 love.event.quit()
             end
@@ -1479,11 +1673,19 @@ function love.keypressed(key)
         end
     elseif gamestate == "game" then
         if key == "escape" and Knapping.open then
-            Knapping.open = false
+            Knapping:toggle()
             return
         end
         if key == "escape" and Crafting.open then
             Crafting.open = false
+            return
+        end
+        if key == "escape" and Pottery.open then
+            Pottery:toggle()
+            return
+        end
+        if key == "escape" and StructureUI.open then
+            StructureUI:close()
             return
         end
         if key == "k" then
@@ -1541,6 +1743,7 @@ function love.keypressed(key)
             Mapsave.save(Map.baseplateTiles, materials, currentWorldName, {seed = Map.mapSeed})
             Mapsave.savePlacements(Placements.placed, currentWorldName)
             Mapsave.saveProps(Props.props, currentWorldName)
+            Mapsave.saveStructures(Structures.serialize(), currentWorldName)
         end
 
         if key == "escape" then
@@ -1569,6 +1772,13 @@ function love.keypressed(key)
                 gamestate = "menu"
             end)
         end
+    elseif gamestate == "help" then
+        if key == "escape" then
+            HelpMenu.toggle(false)
+            Transition.startFade(0.5, function()
+                gamestate = "menu"
+            end)
+        end
     elseif gamestate == "multiplayer" then
         if key == "escape" and not MultiplayerMenu:handlesEscape() then
             Transition.startFade(0.5, function()
@@ -1584,6 +1794,28 @@ function love.keypressed(key)
             Transition.startFade(0.5, function()
                 gamestate = "menu"
             end)
+        end
+    elseif gamestate == "gameover" then
+        if key == "up" or key == "down" then
+            gameOverSelected = gameOverSelected == 1 and 2 or 1
+        elseif key == "return" then
+            local choice = gameOverItems[gameOverSelected]
+            if choice == "Respawn" then
+                respawnPlayer()
+            elseif choice == "Main Menu" then
+                healthBar:setHealth(healthBar.maxHealth)
+                hungerBar:setHunger(hungerBar.maxHunger)
+                if currentWorldName then
+                    Mapsave.saveCountryball(countryball, currentWorldName)
+                    Mapsave.saveInventory(Inventory, currentWorldName)
+                    Mapsave.savePlacements(Placements.placed, currentWorldName)
+                    Mapsave.saveStructures(Structures.serialize(), currentWorldName)
+                end
+                playerIsDead = false
+                Transition.startFade(0.5, function()
+                    gamestate = "menu"
+                end)
+            end
         end
     end
     if key == "f1" then

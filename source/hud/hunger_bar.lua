@@ -1,7 +1,6 @@
 local love = require "love"
 local lg = love.graphics
 local countryball = require "source.countryball"
-local utils = require("source.utils")
 
 local hungerBar = {
     hunger = countryball.hunger or 5,
