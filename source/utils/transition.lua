@@ -1,4 +1,5 @@
 local lg = love.graphics
+local tweens = require("source.utils.tweens")
 local Transition = {}
 
 Transition.state = {
@@ -22,9 +23,7 @@ local function safeDuration(d)
     return (d and d > 0) and d or 0.001
 end
 
-local function easeInOut(t)
-    return t < 0.5 and 4 * t * t * t or 1 - math.pow(-2 * t + 2, 3) / 2
-end
+local easeInOut = tweens.easeInOutQuad
 function Transition.startFade(duration, callback)
     Transition.state.mode = "fadeOut"
     Transition.state.duration = duration or 0.5

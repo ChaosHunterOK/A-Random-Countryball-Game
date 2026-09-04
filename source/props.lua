@@ -539,19 +539,36 @@ local function drawProps(propList, drawWithStencil)
             end
             
             if distSq < 9 then
-                local sx, sy, z = camera:project3D(prop.x, prop.y, prop.z)
-                if sx and z > 0 and t then
-                    local scale = (1 / z) * 6
-                    local barW = 40 * scale
-                    local barH = 6 * scale
-                    local healthRatio = prop.health / (prop.maxHealth or t.maxHealth)
+                local pScale = prop.scale or 1
+                local topY
+                if t and t.isTall then
+                    local bottomH = t.imgBottom:getHeight()
+                    local middleH = t.imgMiddle:getHeight()
+                    local topH = t.imgTop:getHeight()
+                    local totalHeight = bottomH + (middleH * (prop.length or 0)) + topH
+                    topY = prop.y + totalHeight * pixelToWorldY * pScale
+                elseif t then
+                    topY = prop.y + (t.h or 0) * pixelToWorldY * pScale
+                end
 
-                    local bx = sx - barW / 2 + (prop.shakeOffsetX * scale)
-                    local by = sy - (totalPixelHeight * scale + 4) + (prop.shakeOffsetY * scale)
-                    lg.setColor(0, 0, 0)
-                    lg.rectangle("fill", bx, by, barW, barH)
-                    lg.setColor(1 - healthRatio, healthRatio, 0)
-                    lg.rectangle("fill", bx + scale, by + scale, (barW - 2 * scale) * healthRatio, barH - 2 * scale)
+                if topY and prop.type ~= "growingTree" then
+                    local sx, sy, z = camera:project3D(prop.x, topY, prop.z)
+                    if sx and sy and z > 0 then
+                        local barScale = (1 / z) * 6
+                        local barW = 40 * barScale
+                        local barH = 6 * barScale
+                        local healthRatio = (prop.health / (prop.maxHealth or t.maxHealth)) or 1
+                        local shakeX = (prop.shakeOffsetX or 0) * barScale
+                        local shakeY = (prop.shakeOffsetY or 0) * barScale
+
+                        local bx = sx - barW * 0.5 + shakeX
+                        local by = sy - 4 * barScale + shakeY
+                        lg.setColor(0, 0, 0, 1)
+                        lg.rectangle("fill", bx, by, barW, barH)
+                        lg.setColor(1 - healthRatio, healthRatio, 0)
+                        lg.rectangle("fill", bx + barScale, by + barScale, (barW - 2 * barScale) * healthRatio, barH - 2 * barScale)
+                        lg.setColor(1, 1, 1, 1)
+                    end
                 end
             end
         end
