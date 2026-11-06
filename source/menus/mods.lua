@@ -94,6 +94,11 @@ function ModsMenu.loadMod(modName)
 end
 
 local base_width, base_height = 1000, 525
+function ModsMenu.resize(width, height)
+    base_width, base_height = width, height
+    ModsMenu.visibleRows = math.max(1, math.floor((height - 120) / ModsMenu.itemSpacing))
+end
+
 function ModsMenu:draw()
     utils.drawTextWithBorder("MODS", base_width/2 - 40, 40)
 

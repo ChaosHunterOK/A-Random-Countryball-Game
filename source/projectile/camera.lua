@@ -22,7 +22,9 @@ camera._lastPitch = -1
 camera._cosYaw, camera._sinYaw = 1, 0
 camera._cosPitch, camera._sinPitch = 1, 0
 
-local sin, cos, tan, rad = math.sin, math.cos, math.tan, math.rad
+local sin, cos, tan, rad, atan, sqrt = math.sin, math.cos, math.tan, math.rad, math.atan, math.sqrt
+
+camera._cullCosHalfFov = -1
 local base_width, base_height = 1000, 525
 
 function camera:updateProjectionConstants(w, h)
@@ -40,11 +42,31 @@ function camera:updateProjectionConstants(w, h)
     self._cosPitch, self._sinPitch = cos(self.pitch), sin(self.pitch)
     self.lookX = math.sin(self.yaw)
     self.lookZ = math.cos(self.yaw)
+    local halfFovV = self.fovRad * 0.5
+    local halfFovH = atan(tan(halfFovV) * self.aspect / self.zoom)
+    local padding = rad(15)
+    self._cullCosHalfFov = cos(halfFovH + padding)
 end
 
 function camera:isPointInFront(x, z)
     local dx, dz = x - self.x, z - self.z
     return (dx * self.lookX + dz * self.lookZ) > -1.0
+end
+
+function camera:isInViewFrustum(x, z, radius)
+    local dx, dz = x - self.x, z - self.z
+    local distSq = dx * dx + dz * dz
+    if distSq < 0.0001 then return true end
+
+    local dist = sqrt(distSq)
+    local cosAngle = (dx * self.lookX + dz * self.lookZ) / dist
+
+    local threshold = self._cullCosHalfFov
+    if radius and radius > 0 then
+        threshold = threshold - (radius / dist)
+    end
+
+    return cosAngle > threshold
 end
 
 function camera:getForward()
@@ -104,8 +126,9 @@ function camera:getRay(mx, my, w, h)
     local x1 = nx * aspect * tanFOV
     local y1 = ny * tanFOV
     local z2 = 1
-    local cy, sy = cos(self.yaw), sin(self.yaw)
-    local cp, sp = cos(self.pitch), sin(self.pitch)
+    self:getForward()
+    local cy, sy = self._cosYaw, self._sinYaw
+    local cp, sp = self._cosPitch, self._sinPitch
 
     local dy = y1 * cp + z2 * sp
     local z1 = -y1 * sp + z2 * cp
@@ -116,32 +139,30 @@ function camera:getRay(mx, my, w, h)
     return dx / mag, dy / mag, dz / mag
 end
 
-function camera:getMVPMatrix()
-    local cy, sy = cos(self.yaw), sin(self.yaw)
-    local cp, sp = cos(self.pitch), sin(self.pitch)
+local NEAR, FAR = 0.1, 100.0
+local CLIP_A = (FAR + NEAR) / (FAR - NEAR)
+local CLIP_B = (2 * FAR * NEAR) / (FAR - NEAR)
 
-    local v11, v12, v13 = cy, sp * sy, cp * sy
-    local v21, v22, v23 = 0, cp, -sp
-    local v31, v32, v33 = -sy, sp * cy, cp * cy
+function camera:getViewProjectionMatrix()
+    self:getForward()
+    local cy, sy = self._cosYaw, self._sinYaw
+    local cp, sp = self._cosPitch, self._sinPitch
+    local fx, fy = self._fx, self._fy
+    local camX, camY, camZ = self.x, self.y, self.z
 
-    local tx = -(self.x * v11 + self.y * v21 + self.z * v31)
-    local ty = -(self.x * v12 + self.y * v22 + self.z * v32)
-    local tz = -(self.x * v13 + self.y * v23 + self.z * v33)
+    local Tx1 = -cy * camX + sy * camZ
+    local Tz1 = -sy * camX - cy * camZ
 
-    local f = 1 / tan(self.fovRad * 0.5)
-    local znear, zfar = 0.1, 100
-    local invRange = 1 / (znear - zfar)
-
-    local a = f / self.aspect
-    local b = f
-    local c = (zfar + znear) * invRange
-    local d = (2 * zfar * znear) * invRange
+    local rXx, rXy, rXz, rXw = fx * cy, 0, -fx * sy, fx * Tx1
+    local rYx, rYy, rYz, rYw = fy * (-sp * sy), fy * cp, fy * (-sp * cy), fy * (-cp * camY - sp * Tz1)
+    local wx, wy, wz, ww = cp * sy, sp, cp * cy, cp * Tz1 - sp * camY
+    local rZx, rZy, rZz, rZw = CLIP_A * wx, CLIP_A * wy, CLIP_A * wz, CLIP_A * ww - CLIP_B
 
     return {
-        a * v11, a * v12, a * v13, 0,
-        b * v21, b * v22, b * v23, 0,
-        c * v11 - v31, c * v12 - v32, c * v13 - v33, -1,
-        d * v11 - tx,  d * v12 - ty,  d * v13 - tz, 0
+        rXx, rYx, rZx, wx,
+        rXy, rYy, rZy, wy,
+        rXz, rYz, rZz, wz,
+        rXw, rYw, rZw, ww,
     }
 end
 

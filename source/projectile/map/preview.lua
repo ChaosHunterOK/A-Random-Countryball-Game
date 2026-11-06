@@ -1,4 +1,5 @@
 local love = require("love")
+local utils = require("source.utils.utils")
 local lg = love.graphics
 local Preview = {}
 
@@ -39,8 +40,7 @@ function Preview:get(name)
 	local centerX, centerZ = (minX + maxX) * 0.5, (minZ + maxZ) * 0.5
 	local selected = {}
 	for _, tile in ipairs(loaded) do
-		local x = tile.x or tile[1][1]
-		local z = tile.z or tile[1][3]
+		local x, _, z = utils.getTileCenter(tile)
 		if abs(x - centerX) <= leSize * 0.5 and abs(z - centerZ) <= leSize * 0.5 then
 			selected[#selected + 1] = tile
 		end
@@ -48,7 +48,8 @@ function Preview:get(name)
 
 	local centerY = 0
 	for _, tile in ipairs(selected) do
-		centerY = centerY + (tile[1][2] + tile[2][2] + tile[3][2] + tile[4][2]) * 0.25
+		local _, ty = utils.getTileCenter(tile)
+		centerY = centerY + ty
 	end
 	centerY = (#selected > 0) and (centerY / #selected) or 0
 	local preview = {tiles = selected, tileGrid = tileGrid, centerX = centerX, centerZ = centerZ, centerY = centerY}
@@ -83,7 +84,10 @@ function Preview:draw(name, x, y, width, height)
 		lg.setColor(1, 1, 1, 1)
 		for i = 1, terrainBatchCount do self.verts.drawTerrainMesh(terrainBatches[i].mesh) end
 		for i = 1, transparentCount do
-			if transparent[i].mesh then lg.draw(transparent[i].mesh) end
+			if transparent[i].mesh then
+				local uv = transparent[i].uvOffset
+				self.verts.drawWaterMesh(transparent[i].mesh, uv.u, uv.v)
+			end
 		end
 		lg.setCanvas()
 		lg.pop()

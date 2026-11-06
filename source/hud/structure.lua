@@ -16,8 +16,6 @@ Structure.target = nil
 Structure.invBar = lg.newImage("image/bar/inv.png")
 Structure.outputBar = lg.newImage("image/bar/give.png")
 
-local easeInOutQuad = tweens.easeInOutQuad
-
 function Structure:animateToOpen(open)
     tweens.cancelProperty(self, "anim")
     tweens.cancelProperty(self, "bgAlpha")
@@ -39,8 +37,9 @@ function Structure:close()
 end
 
 function Structure:update(dt)
-    if self.open and not self.target then
+    if self.open and (not self.target or not Structures.DEFS[self.target.type]) then
         self:close()
+        self.target = nil
     end
 end
 
@@ -48,6 +47,7 @@ function Structure:layout()
     local s = self.target
     if not s then return nil end
     local def = Structures.DEFS[s.type]
+    if not def then return nil end
 
     local scaleX, scaleY = lg.getWidth() / 1000, lg.getHeight() / 525
     local scale = math.min(scaleX, scaleY)
@@ -228,7 +228,8 @@ function Structure:handleSlotClick(s, kind, index, button, inventory, itemTypes)
             return
         end
 
-        local stackLimit = itemTypes[inventory.heldItem].stack or 1
+        local heldDef = itemTypes[inventory.heldItem]
+        local stackLimit = (heldDef and heldDef.stack) or 1
         if not slot then
             if button == 1 then
                 setSlot({ type = inventory.heldItem, count = inventory.heldCount })

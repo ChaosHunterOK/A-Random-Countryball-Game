@@ -38,8 +38,16 @@ recipe.recipes = {
         output = {type = "apple_seed", count = 4}
     },
     {
+        input = {"yellow_apple", nil, nil, nil},
+        output = {type = "apple_seed", count = 4}
+    },
+    {
         input = {"apple", nil, nil, nil},
         output = {type = "apple_seed", count = 4}
+    },
+    {
+        input = {"barrel_cactus_fruit", nil, nil, nil},
+        output = {type = "barrel_cactus_seed", count = 6}
     },
     {
         input = {"copper_shovel_head", nil, "stick", nil},

@@ -80,8 +80,9 @@ function Pottery:draw(inventory, itemTypes)
 
     lg.draw(self.outputBar, outputX, outputY, 0, scale, scale)
 
-    if self.craftedItem then
-        local itemImg = itemTypes[self.craftedItem].img
+    local outDef = self.craftedItem and itemTypes[self.craftedItem] or nil
+    if outDef and outDef.img then
+        local itemImg = outDef.img
         local t = tweens.easeInOutQuad(self.anim)
         lg.draw(itemImg, outputX + slotW/2, outputY + slotH/2,0, scale*t, scale*t, itemImg:getWidth()/2, itemImg:getHeight()/2)
     end

@@ -74,6 +74,12 @@ Options.itemSpacing = math.floor(60 * (base_height / 525))
 Options.visibleRows = math.floor((base_height - 400) / Options.itemSpacing)
 Options.activeSlider = nil
 
+function Options.resize(width, height)
+    base_width, base_height = width, height
+    Options.itemSpacing = math.max(1, math.floor(60 * (height / 525)))
+    Options.visibleRows = math.max(1, math.floor((height - 400) / Options.itemSpacing))
+end
+
 function Options:forEachItem(callback)
     for _, category in ipairs(self.categories) do
         for _, item in ipairs(category.items) do

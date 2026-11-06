@@ -3,12 +3,17 @@ local lg = love.graphics
 local base_width, base_height = 1000, 525
 local utils = require("source.utils.utils")
 local HelpMenu = {
-    credits = {"Gulp"},
+    text = {"Gulp"},
     scrollOffset = 0,
     visibleRows = 8,
     itemSpacing = 60,
     open = true,
 }
+
+function HelpMenu.resize(width, height)
+    base_width, base_height = width, height
+    HelpMenu.visibleRows = math.max(1, math.floor((height - 120) / HelpMenu.itemSpacing))
+end
 
 function HelpMenu.update(dt)
     --Audio.update(dt)
@@ -21,7 +26,7 @@ end
 function HelpMenu.draw()
     utils.drawTextWithBorder("HELP", base_width/2 - 40, 40)
     local startY = 120
-    for i, name in ipairs(HelpMenu.credits) do
+    for i, name in ipairs(HelpMenu.text) do
         local drawIndex = i - HelpMenu.scrollOffset
         if drawIndex >= 1 and drawIndex <= HelpMenu.visibleRows then
             local y = startY + (drawIndex - 1) * HelpMenu.itemSpacing

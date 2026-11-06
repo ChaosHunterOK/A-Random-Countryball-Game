@@ -1,5 +1,4 @@
 local love, lg = require("love"), love.graphics
-local ffi = require("ffi")
 
 lg.setDefaultFilter("nearest", "nearest")
 lg.setFrontFaceWinding("ccw")
@@ -97,7 +96,7 @@ local breakParticleOpts = {
 local itemsOnGround, itemTypes, items = ItemsModule.itemsOnGround, ItemsModule.itemTypes, ItemsModule.items
 
 local chunkCfg = Map.chunkCfg
-local base_width, base_height = camera.hw * 2, camera.hh * 2
+local base_width, base_height = lg.getDimensions()
 local renderDistance = chunkCfg.size * chunkCfg.radius
 local renderDistanceSq = renderDistance * renderDistance
 
@@ -168,7 +167,7 @@ function initializeMaterials()
     end
     for id, def in pairs(ModAPI.materials) do
         if def.path then
-            materials[id] = love.graphics.newImage(def.path)
+            materials[id] = ModAPI.image(def.path) or materials.stone
         end
     end
 end
@@ -205,7 +204,7 @@ function createNewWorld(name)
     currentWorldName = nm
     --Placements.baseTiles = baseplateTiles
     
-    local sx, sz = math.floor(bw/2), math.floor(bh/2)
+    local sx, sz = floor(bw/2), floor(bh/2)
     countryball.x = sx
     countryball.z = sz
     countryball.y = getSafeSpawnY(sx, sz)
@@ -246,8 +245,8 @@ function loadWorld(name)
             for i, tile in ipairs(Map.baseplateTiles) do
                 local cx, cz = tile.chunkX, tile.chunkZ
                 if cx == nil or cz == nil then
-                    cx = math.floor((tile.x or 0) / chunkSize)
-                    cz = math.floor((tile.z or 0) / chunkSize)
+                    cx = floor((tile.x or 0) / chunkSize)
+                    cz = floor((tile.z or 0) / chunkSize)
                     tile.chunkX = cx
                     tile.chunkZ = cz
                 end
@@ -363,52 +362,94 @@ local preloadedTiles = {}
 local preloadedTileCount = 0
 local preloadedTerrainBatches = {}
 local preloadedTerrainBatchCount = 0
+
+local tilesToRenderPool = {}
+local tilesToRenderCount = 0
+local chunkKeyCache = {}
+
+local function getChunkKey(cx, cz)
+    local row = chunkKeyCache[cx]
+    if not row then
+        row = {}
+        chunkKeyCache[cx] = row
+    end
+    local key = row[cz]
+    if not key then
+        key = cx .. ":" .. cz
+        row[cz] = key
+    end
+    return key
+end
+
 function updateTileMeshes(force)
-    if not force and math.abs(camera.x - lastCamX) < 0.1 and math.abs(camera.z - lastCamZ) < 0.1 then
+    if not force and math.abs(camera.x - lastCamX) < 0.1 and math.abs(camera.z - lastCamZ) < 0.1
+        and math.abs(camera.yaw - (lastCamYaw or 0)) < 0.01 then
         return
     end
     lastCamX, lastCamZ = camera.x, camera.z
+    lastCamYaw = camera.yaw
+    camera:updateProjectionConstants()
 
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
     local r = chunkCfg.radius
-    local tilesToRender = {}
+    local chunkSize = chunkCfg.size or 4
+    local chunkCullRadius = chunkSize * 0.75
+    tilesToRenderCount = 0
+    local tileChunks = Map.baseplateTiles._tileChunks
+    local baseplateTiles = Map.baseplateTiles
     for cz = camChunkZ - r, camChunkZ + r do
         for cx = camChunkX - r, camChunkX + r do
-            local key = cx .. ":" .. cz
-            local tileIndices = Map.baseplateTiles._tileChunks[key]
-            
-            if tileIndices then
-                for i = 1, #tileIndices do
-                    local tile = Map.baseplateTiles[tileIndices[i]]
-                    table.insert(tilesToRender, tile)
+            local chunkCenterX = cx * chunkSize + chunkSize * 0.5
+            local chunkCenterZ = cz * chunkSize + chunkSize * 0.5
+            if camera:isInViewFrustum(chunkCenterX, chunkCenterZ, chunkCullRadius) then
+                local tileIndices = tileChunks[getChunkKey(cx, cz)]
+                if tileIndices then
+                    for i = 1, #tileIndices do
+                        tilesToRenderCount = tilesToRenderCount + 1
+                        tilesToRenderPool[tilesToRenderCount] = baseplateTiles[tileIndices[i]]
+                    end
                 end
             end
         end
     end
-    local quads = verts.generate(tilesToRender, camera, renderDistanceSq, Map.tileGrid, materials)
+    for i = tilesToRenderCount + 1, #tilesToRenderPool do
+        tilesToRenderPool[i] = nil
+    end
+
+    local quads = verts.generate(tilesToRenderPool, camera, renderDistanceSq, Map.tileGrid, materials)
     preloadedTiles, preloadedTileCount, preloadedTerrainBatches, preloadedTerrainBatchCount =
         verts.buildBatches(quads, materials.grass or materials.waterSmall)
 end
 
 local baseScale = 3
+local referenceHalfHeight = 262
+local imagePhonkCache = setmetatable({}, { __mode = "k" })
 local function drawWithStencil(objX, objY, objZ, img, flip, scaleX, scaleY, rotation, alpha, yOffset)
     if not img then return end
 
     local objChunkX, objChunkZ = getChunkCoord(objX), getChunkCoord(objZ)
     local camChunkX, camChunkZ = getChunkCoord(camera.x), getChunkCoord(camera.z)
-    if (objChunkX - camChunkX)^2 + (objChunkZ - camChunkZ)^2 > chunkCfg.radius^2 then
+    if (objChunkX - camChunkX) ^ 2 + (objChunkZ - camChunkZ) ^ 2 > chunkCfg.radius ^ 2 then
+        return
+    end
+    if not camera:isInViewFrustum(objX, objZ, 1.0) then
         return
     end
 
     local sx, sy, z = camera:project3D(objX, objY + (yOffset or -0.04), objZ)
     if not sx or z <= 0 then return end
-    local base = (camera._f / z) * (baseScale / 1.25)
+    local base = (camera._f / z) * (baseScale / 1.25) * (camera.hh / referenceHalfHeight)
     local targetScaleX = base * (scaleX or 1)
     local targetScaleY = base * (scaleY or 1)
-    local w, h = img:getDimensions()
-    
-    local pixelWidth  = math.max(1, math.floor(w * targetScaleX + 0.5))
-    local pixelHeight = math.max(1, math.floor(h * targetScaleY + 0.5))
+    local size = imagePhonkCache[img]
+    if not size then
+        size = { img:getDimensions() }
+        imagePhonkCache[img] = size
+    end
+    local w, h = size[1], size[2]
+
+    local pixelWidth = max(1, floor(w * targetScaleX + 0.5))
+    local pixelHeight = max(1, floor(h * targetScaleY + 0.5))
     local sxScale = pixelWidth / w
     local syScale = pixelHeight / h
 
@@ -416,13 +457,17 @@ local function drawWithStencil(objX, objY, objZ, img, flip, scaleX, scaleY, rota
         sxScale = -sxScale
     end
 
-    local textureMul = nightCycle.getTextureMultiplier() or {1,1,1}
+    local textureMul = nightCycle.getTextureMultiplier()
+    local tr, tg, tb = 1, 1, 1
+    if textureMul then
+        tr, tg, tb = textureMul[1], textureMul[2], textureMul[3]
+    end
 
     lg.push("all")
     lg.setDepthMode("lequal", false)
-    
-    lg.setColor(textureMul[1], textureMul[2], textureMul[3], alpha or 1)
-    lg.draw(img, math.floor(sx + 0.5), math.floor(sy - 1.5), rotation or 0, sxScale, syScale, w / 2, h)
+
+    lg.setColor(tr, tg, tb, alpha or 1)
+    lg.draw(img, floor(sx + 0.5), floor(sy - 1.5), rotation or 0, sxScale, syScale, w / 2, h)
     lg.pop()
 end
 
@@ -515,20 +560,6 @@ function breakTileAt(tileX, tileZ)
     updateTileMeshes(true)
     MultiplayerAPI.sendTileBreak(tileX, tileZ, tile.isAir, tile.textureName, tile.height)
 end
-
-local unbreakableMaterials = {
-    waterSmall = true,
-    waterMedium = true,
-    waterDeep = true,
-    lava = true,
-}
-
-local placementPlacables = {
-    oak = true,
-    stone = true,
-    dark_stone = true,
-    phenocryst = true
-}
 
 function isMouseOnItem(mx, my, item, image, scale, sx, sy2)
     local w, h = image:getWidth(), image:getHeight()
@@ -630,6 +661,15 @@ function iAmMad(dt)
         Mapsave.saveStructures(Structures.serialize(), currentWorldName)
         autosaveTimer = 0
     end
+    Inventory:update(dt)
+    Crafting:update(dt)
+    Pottery:update(dt)
+    StructureUI:update(dt)
+    Structures.update(dt)
+    Props.updateProps(dt)
+    Props.updateCactusContact(countryball, dt)
+    Particles.updateSmoke(dt)
+    Particles.updateFire(dt)
 end
 
 function love.mousepressed(mx, my, button)
@@ -792,25 +832,28 @@ function love.mousepressed(mx, my, button)
     if tile then
         local selected = Inventory:getSelected()
         if button == 1 then
-            local baseMultiplier = selected and ItemsModule.getToolMultiplier(selected.type) or 0.5
-            local multiplier = ModAPI.runHooks("onCalculateToolPower", selected, baseMultiplier) or baseMultiplier
+            local matName = (kind == "block") and tile.type or tile.textureName
+            local bestTool = Placements.bestTools[matName]
+            local multiplier = selected and ItemsModule.getToolMultiplier(selected.type, bestTool) or 0.5
 
             if kind == "block" then
                 local matName = tile.type
-                if not matName or unbreakableMaterials[matName] then return end
+                if not matName or Placements.isUnbreakable(matName) then return end
 
                 local br = Placements.currentBreaking
                 if br.tile ~= tile then
                     br.tile = tile
                     br.progress = 0
-                    br.max = Placements.durabilities[matName] or 3
+                    br.max = Placements.getDurability(matName)
                 else
                     br.progress = br.progress + multiplier
                     Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.2, tile.z, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
                         ModAPI.runHooks("onBlockBreak", tile, matName)
                         if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
-                            ItemsModule.dropItem(tile.x, tile.y + 1, tile.z, matName, 1, nil, 0)
+                            if ItemsModule.isKnownItem(matName) then
+                                ItemsModule.dropItem(tile.x, tile.y + 1, tile.z, matName, 1, nil, 0)
+                            end
                         end
 
                         Particles.spawnBurst(tile.texture or materials[matName], tile.x, tile.y + 0.2, tile.z, 10, breakParticleOpts)
@@ -829,22 +872,22 @@ function love.mousepressed(mx, my, button)
                 end
             else
                 local matName = tile.textureName
-                if not matName or unbreakableMaterials[matName] then return end
+                if not matName or Placements.isUnbreakable(matName) then return end
 
                 local br = Placements.currentBreaking
                 if br.tile ~= tile then
                     br.tile = tile
                     br.progress = 0
-                    br.max = Placements.durabilities[matName] or 3
+                    br.max = Placements.getDurability(matName)
                 else
                     br.progress = br.progress + multiplier
                     Particles.spawnBurst(materials[matName], cx, cy + 0.2, cz, 3, breakHitParticleOpts)
                     if br.progress >= br.max then
                         if not Placements.requiresTool[matName] or hasCorrectTool(selected, matName) then
                             if matName == "dirt_clay" then
-                                ItemsModule.dropItem(cx + 0.5, cy + 1, cz, "dirt", 1, nil, 0)
-                                ItemsModule.dropItem(cx, cy + 1, cz, "clay", 1, nil, 0)
-                            else
+                                if ItemsModule.isKnownItem("dirt") then ItemsModule.dropItem(cx + 0.5, cy + 1, cz, "dirt", 1, nil, 0) end
+                                if ItemsModule.isKnownItem("clay") then ItemsModule.dropItem(cx, cy + 1, cz, "clay", 1, nil, 0) end
+                            elseif ItemsModule.isKnownItem(matName) then
                                 ItemsModule.dropItem(cx, cy + 1, cz, matName, 1, nil, 0)
                             end
                         end
@@ -868,7 +911,7 @@ function love.mousepressed(mx, my, button)
                 return
             end
             
-            if placementPlacables[selected.type] then
+            if Placements.isPlaceable(selected.type) then
                 local newX, newY, newZ, mode, yaw = Placements.resolvePlacement(cx, cy, cz)
 
                 Placements.place(newX, newY, newZ, selected.type, mode, yaw)
@@ -903,10 +946,7 @@ local title = {
 
 local menuAnim = {}
 for i = 1, #menuItems do
-    menuAnim[i] = {
-        offset = 0,
-        pulse = 0
-    }
+    menuAnim[i] = {offset = 0, pulse = 0}
 end
 
 local pauseVolume = 0
@@ -946,22 +986,22 @@ function love.update(dt)
         Audio.switchSong("menu")
         local dx = (mx / base_width - 0.5) * 6
         local dz = (my / base_height - 0.5) * 6
-        menuTargetCamX = bw / 2 + dx + math.sin(love.timer.getTime() * 0.4) * 0.2
-        menuTargetCamZ = bh / 2 + dz + math.cos(love.timer.getTime() * 0.4) * 0.2
+        menuTargetCamX = bw / 2 + dx + sin(love.timer.getTime() * 0.4) * 0.2
+        menuTargetCamZ = bh / 2 + dz + cos(love.timer.getTime() * 0.4) * 0.2
         menuCamX = expEase(menuCamX, menuTargetCamX, 4, dt)
         menuCamZ = expEase(menuCamZ, menuTargetCamZ, 4, dt)
 
         camera.x, camera.z = menuCamX, menuCamZ
         local targetY = getTileAt(camera.x, camera.z).height + 2.5
         camera.y = expEase(camera.y, targetY, 4, dt)
-        title.intro = math.min(title.intro + dt * 0.9, 1)
-        local overshoot = math.sin(title.intro * math.pi) * 40
+        title.intro = min(title.intro + dt * 0.9, 1)
+        local overshoot = m.sin(title.intro * m.pi) * 40
 
         title.x = expEase(title.x,title.targetX - overshoot,6,dt)
 
         title.scale = expEase(title.scale, 1, 5, dt)
-        title.rot = math.sin(love.timer.getTime() * 0.6) * 0.02
-        title.float = math.sin(love.timer.getTime() * 1.5) * 6
+        title.rot = sin(love.timer.getTime() * 0.6) * 0.02
+        title.float = sin(love.timer.getTime() * 1.5) * 6
         for i = 1, #menuItems do
             local anim = menuAnim[i]
             local target = (i == selectedIndex) and 16 or 0
@@ -984,7 +1024,7 @@ function love.update(dt)
                 pauseSource:play()
             end
 
-            pauseVolume = math.min(pauseVolume + fadeSpeed * dt, 1)
+            pauseVolume = min(pauseVolume + fadeSpeed * dt, 1)
             pauseSource:setVolume(pauseVolume)
         else
             pauseVolume = 0
@@ -997,7 +1037,7 @@ function love.update(dt)
     if gamestate == "game" then
         Audio.switchSong("main")
         local target = pauseOpen and 1 or 0
-        pauseProgress = pauseProgress + (target - pauseProgress) * (1 - math.exp(-pauseSmooth * dt))
+        pauseProgress = pauseProgress + (target - pauseProgress) * (1 - m.exp(-pauseSmooth * dt))
         if pauseProgress < 1e-4 then pauseProgress = 0 end
         if 1 - pauseProgress < 1e-4 then pauseProgress = 1 end
         if not pauseOpen then
@@ -1032,7 +1072,11 @@ function love.update(dt)
                 end
                 local dx, dy = mx - lastMouseX, my - lastMouseY
                 camera.yaw = camera.yaw - dx * camera.sensitivity
-                camera.pitch = clamp(camera.pitch - dy * camera.sensitivity, -1.2, 1.2)
+                camera.pitch = camera.pitch - dy * camera.sensitivity
+                local sp = 1.2 * dt
+                if lki("up") then camera.pitch = camera.pitch - sp end
+                if lki("down") then camera.pitch = camera.pitch + sp end
+                camera.pitch = clamp(camera.pitch, -1.2, 1.2)
                 lastMouseX, lastMouseY = mx, my
             else
                 local sy, sp = 1.5 * dt, 1.2 * dt
@@ -1073,15 +1117,6 @@ function love.update(dt)
             for _, e in ipairs(mobs.entities) do
                 cue(e, dt, Map.tileGrid)
             end
-            Inventory:update(dt)
-            Crafting:update(dt)
-            Pottery:update(dt)
-            StructureUI:update(dt)
-            Structures.update(dt)
-            Props.updateProps(dt)
-            Props.updateCactusContact(countryball, dt)
-            Particles.updateSmoke(dt)
-            Particles.updateFire(dt)
             iAmMad(dt)
             countryball.networkSync(MultiplayerMenu, dt)
             countryball.updateRemotePlayers(dt)
@@ -1120,8 +1155,8 @@ function getTileUnderCursor(mx, my, maxDistance)
             local surfY = lib3d.bilinearInterpolate(t1[2], t2[2], t4[2], t3[2], fx, fz)
             local diff = wy - surfY
 
-            local minY = math.min(0, t1[2], t2[2], t3[2], t4[2])
-            local maxY = math.max(tile.height or 0, t1[2], t2[2], t3[2], t4[2])
+            local minY = min(0, t1[2], t2[2], t3[2], t4[2])
+            local maxY = max(tile.height or 0, t1[2], t2[2], t3[2], t4[2])
             local hitAABB = false
             local hitT = nil
             if maxY > minY then
@@ -1156,9 +1191,51 @@ function getTileUnderCursor(mx, my, maxDistance)
         t = t + step
     end
 end
-skyBox.load()
 
-function drawTiles()
+local placementMeshFormat = {
+    {"VertexPosition", "float", 2},
+    {"VertexTexCoord", "float", 2},
+    {"VertexColor", "float", 4},
+}
+
+local function drawPlacementFace(placement, faceIndex, faceVerts)
+    local texture = placement.texture or materials[placement.type]
+    if not texture then
+        lg.polygon("fill", faceVerts)
+        return
+    end
+
+    placement.faceMeshes = placement.faceMeshes or {}
+    local mesh = placement.faceMeshes[faceIndex]
+    if not mesh then
+        mesh = lg.newMesh(placementMeshFormat, 4, "fan", "dynamic")
+        placement.faceMeshes[faceIndex] = mesh
+    end
+
+    local vertices = placement.faceVertices and placement.faceVertices[faceIndex]
+    if not vertices then
+        vertices = {
+            {0, 0, 0, 0, 1, 1, 1, 1},
+            {0, 0, 1, 0, 1, 1, 1, 1},
+            {0, 0, 1, 1, 1, 1, 1, 1},
+            {0, 0, 0, 1, 1, 1, 1, 1},
+        }
+        placement.faceVertices = placement.faceVertices or {}
+        placement.faceVertices[faceIndex] = vertices
+    end
+
+    for i = 1, 4 do
+        vertices[i][1], vertices[i][2] = faceVerts[(i - 1) * 2 + 1], faceVerts[(i - 1) * 2 + 2]
+    end
+    mesh:setVertices(vertices)
+    mesh:setTexture(texture)
+    lg.draw(mesh)
+end
+
+skyBox.load()
+nightCycle.load()
+
+function drawTiles(shaderOverride)
     camera:updateProjectionConstants()
     lg.clear(false, true, false)
     lg.setDepthMode("lequal", true)
@@ -1170,17 +1247,23 @@ function drawTiles()
         lg.setColor(1, 1, 1, 1)
         lg.setDepthMode("lequal", true)
     end
+    nightCycle.draw(lg.getWidth(), lg.getHeight(), camera)
+    lg.setColor(1, 1, 1, 1)
+    for i = 1, preloadedTileCount do
+        local t = preloadedTiles[i]
+        if t.mesh then lg.draw(t.mesh) end
+    end
+    for i = 1, preloadedTerrainBatchCount do
+        verts.drawTerrainMesh(preloadedTerrainBatches[i].mesh, shaderOverride, camera)
+    end
+
     local renderQueue = {}
     local placementEntries = Placements.generate(camera, renderDistanceSq)
     for i = 1, preloadedTileCount do
-        local t = preloadedTiles[i]
-        if t.mesh then
-            renderQueue[#renderQueue + 1] = { dist = t.dist, kind = "tile", obj = t }
+        local water = preloadedTiles[i]
+        if water.mesh and water.isWater then
+            renderQueue[#renderQueue + 1] = { dist = water.dist, kind = "water", obj = water }
         end
-    end
-    for i = 1, preloadedTerrainBatchCount do
-        local b = preloadedTerrainBatches[i]
-        renderQueue[#renderQueue + 1] = { dist = b.dist, kind = "terrainBatch", obj = b }
     end
     local function getObjDepth(obj)
         if not obj then return nil end
@@ -1214,11 +1297,14 @@ function drawTiles()
             lg.setColor(1, 1, 1, 1)
             lg.draw(e.mesh)
         elseif entry.kind == "terrainBatch" then
-            verts.drawTerrainMesh(e.mesh)
+            verts.drawTerrainMesh(e.mesh, shaderOverride, camera)
+        elseif entry.kind == "water" then
+            local uv = e.uvOffset
+            verts.drawWaterMesh(e.mesh, uv.u, uv.v, shaderOverride, camera)
         elseif entry.kind == "placement" then
             lg.setColor(1, 1, 1, 1)
-            for _, faceVerts in ipairs(e.faces) do
-                lg.polygon("fill", faceVerts)
+            for faceIndex, faceVerts in ipairs(e.faces) do
+                drawPlacementFace(e, faceIndex, faceVerts)
             end
         elseif entry.kind == "prop" then
             Props.drawProps({e}, drawWithStencil)
@@ -1226,7 +1312,7 @@ function drawTiles()
             local img = ItemsModule.getItemImage(e.type)
             drawWithStencil(e.x, e.y, e.z, img, false)
         elseif entry.kind == "player" then
-            e.draw(drawWithStencil, Inventory, ItemsModule)
+            e.draw(drawWithStencil, Inventory, ItemsModule, camera)
         elseif entry.kind == "remotePlayer" then
             local skinImages = countryball.getSkinImages(e.skin)
             local img = e.currentFrame or (skinImages.idle and skinImages.idle[1])
@@ -1249,7 +1335,7 @@ local function drawPlacementGhost(cx, cy, cz)
     if pauseOpen or Crafting.open or Knapping.open or Pottery.open or StructureUI.open then return end
 
     local slot = Inventory:getSelected()
-    if not slot or not placementPlacables[slot.type] then return end
+    if not slot or not Placements.isPlaceable(slot.type) then return end
     if not cx then return end
 
     local gx, gy, gz, mode, yaw, attached = Placements.resolvePlacement(cx, cy, cz)
@@ -1321,13 +1407,27 @@ function mainGame()
     end
 end
 
-local gradientWidth = base_width * 0.5
-gradientUhh = love.graphics.newMesh({
-    {0, 0, 0, 0, 0, 0, 0, 1},
-    {gradientWidth, 0, 1, 0, 0, 0, 0, 0},
-    {gradientWidth, base_height, 1, 1, 0, 0, 0, 0},
-    {0, base_height, 0, 1, 0, 0, 0, 1},
-}, "fan")
+local gradientUhh
+local function updateScreen(w, h)
+    base_width, base_height = w, h
+    menuSpacing = base_height / 8
+    title.targetX = base_width - titleImage:getWidth() - 30
+    OptMenu.resize(w, h)
+    SkinsMenu.resize(w, h)
+    ModsMenu.resize(w, h)
+    CreditsMenu.resize(w, h)
+    HelpMenu.resize(w, h)
+
+    local gradientWidth = base_width * 0.5
+    gradientUhh = love.graphics.newMesh({
+        {0, 0, 0, 0, 0, 0, 0, 1},
+        {gradientWidth, 0, 1, 0, 0, 0, 0, 0},
+        {gradientWidth, base_height, 1, 1, 0, 0, 0, 0},
+        {0, base_height, 0, 1, 0, 0, 0, 1},
+    }, "fan")
+end
+
+updateScreen(base_width, base_height)
 
 function menuScreen()
     lg.setDepthMode("lequal", true)
@@ -1345,13 +1445,13 @@ function menuScreen()
 
     local startX = menuX
     local totalItems = #menuItems
-    local totalRows = math.ceil(totalItems / maxPerRow)
+    local totalRows = m.ceil(totalItems / maxPerRow)
     local totalHeight = totalRows * buttonHeight + (totalRows - 1) * spacingY
     local startY = (base_height - totalHeight) / 2
 
     for i, text in ipairs(menuItems) do
         local col = (i-1) % maxPerRow
-        local row = math.floor((i-1) / maxPerRow)
+        local row = floor((i-1) / maxPerRow)
 
         local x = startX + col * (buttonWidth + spacingX)
         local y = startY + row * (buttonHeight + spacingY)
@@ -1423,7 +1523,8 @@ local function gameOverScreen()
     lg.setColor(1, 1, 1, 1)
     lg.setShader(monochromeShader)
     lg.setDepthMode("lequal", true)
-    drawTiles()
+    monochromeShader:send("useTerrainProjection", false)
+    drawTiles(monochromeShader)
     lg.setDepthMode()
     lg.setShader()
 
@@ -1495,6 +1596,8 @@ function love.load()
     love.window.setIcon(love.image.newImageData("icon/icon.png"))
     initializeMaterials()
     Preview:configure({mapsave = Mapsave, camera = camera, verts = verts, materials = materials})
+    ModAPI.loadAll("mods")
+    ModAPI.emit("load")
     local loaded, loadedTileGrid, meta = Mapsave.load(materials)
     if loaded then
         Map.baseplateTiles = loaded
@@ -1507,8 +1610,8 @@ function love.load()
             for i, tile in ipairs(Map.baseplateTiles) do
                 local cx, cz = tile.chunkX, tile.chunkZ
                 if cx == nil or cz == nil then
-                    cx = math.floor((tile.x or 0) / chunkSize)
-                    cz = math.floor((tile.z or 0) / chunkSize)
+                    cx = floor((tile.x or 0) / chunkSize)
+                    cz = floor((tile.z or 0) / chunkSize)
                     tile.chunkX = cx
                     tile.chunkZ = cz
                 end
@@ -1589,6 +1692,7 @@ function love.wheelmoved(x, y)
 end
 
 function love.keypressed(key)
+    ModAPI.runHooks("keypressed", key)
     if gamestate == "menu" then
         local maxPerRow = 2
 
@@ -1690,7 +1794,6 @@ function love.keypressed(key)
         end
         if key == "k" then
             camera.free = not camera.free
-            love.mouse.setRelativeMode(camera.free)
             if camera.free then
                 lastMouseX, lastMouseY = love.mouse.getPosition()
             end
@@ -1737,7 +1840,7 @@ function love.keypressed(key)
         --if key == "p" and not Knapping.open and not Crafting.open then Pottery:toggle() end
         Inventory:keypressed(key, itemTypes)
 
-        if key == "q" then healthBar:damageHealth(1) end
+        --if key == "q" then healthBar:damageHealth(1) end
 
         if key == "f5" then
             Mapsave.save(Map.baseplateTiles, materials, currentWorldName, {seed = Map.mapSeed})
@@ -1753,8 +1856,9 @@ function love.keypressed(key)
             end
         end
     elseif gamestate == "options" then
+        local wasInItems = OptMenu.state == "items"
         OptMenu:keypressed(key, camera, chunkCfg, visible_idk)
-        if key == "escape" and OptMenu.state ~= "items" then
+        if key == "escape" and not wasInItems then
             gamestate = prevGamestate or "menu"
             prevGamestate = nil
         end
@@ -1789,7 +1893,10 @@ function love.keypressed(key)
         end
     elseif gamestate == "mods" then
         ModsMenu:keypressed(key)
-        ModAPI.reset()
+        if ModsMenu.dirty then
+            ModAPI.reloadAll("mods")
+            ModsMenu.dirty = false
+        end
         if key == "escape" then
             Transition.startFade(0.5, function()
                 gamestate = "menu"
@@ -1832,6 +1939,7 @@ end
 
 function love.resize(w, h)
     camera:updateProjectionConstants(w, h)
+    updateScreen(w, h)
 end
 
 function love.quit()

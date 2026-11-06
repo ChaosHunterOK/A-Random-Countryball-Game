@@ -17,6 +17,11 @@ local SkinsMenu = {
     itemSpacing = 60
 }
 
+function SkinsMenu.resize(width, height)
+    base_width, base_height = width, height
+    SkinsMenu.visibleRows = math.max(1, math.floor((height - 100) / SkinsMenu.itemSpacing))
+end
+
 local expEase = tweens.expEase
 
 local SKIN_FOLDER = "skins"
@@ -85,7 +90,7 @@ function SkinsMenu.applySkin(name)
         SkinsMenu.ejectingSkin = {
             img = countryball.images.idle[1],
             x = base_width - 120,
-            y = base_height / 2.5,
+            y = base_height - 308,
             vx = 100,
             vy = -600,
             angle = 0,
@@ -107,8 +112,8 @@ function SkinsMenu:draw()
     local startY = 100
     local screenW = love.graphics.getWidth()
     
-    lg.draw(stage, base_width - 355, base_height / 1.7, 0, 2, 2)
-    countryball.viewDraw(base_width - 120, base_height / 2.5, -1, 2)
+    lg.draw(stage, base_width - 355, base_height - 210, 0, 2, 2)
+    countryball.viewDraw(base_width - 120, base_height - 308, -1, 2)
 
     if self.ejectingSkin then
         local e = self.ejectingSkin

@@ -88,14 +88,17 @@ function utils.randomRange(a, b)
     return random() * (b - a) + a
 end
 
-function utils.drawSharpText(text, x, y, limit, align)
+function utils.drawSharpText(text, x, y, limit, align, textColor)
     text = text or ""
     x = x or 0
     y = y or 0
     limit = limit or lg.getWidth()
     align = align or "left"
+    textColor = textColor or {1, 1, 1, 1}
     lg.setShader(sharpTextShader)
+    lg.setColor(textColor)
     lg.printf(text, x, y, limit, align)
+    lg.setColor(1, 1, 1, 1)
     lg.setShader()
 end
 
@@ -116,7 +119,7 @@ function utils.drawTextWithBorder(text, x, y, limit, align, borderColor, textCol
     lg.printf(text, x + 1, y + 1, limit, align)
     lg.setColor(textColor)
     lg.printf(text, x, y, limit, align)
-
+    lg.setColor(1, 1, 1, 1)
     lg.setShader()
 end
 
@@ -149,10 +152,16 @@ function utils.any(t, func)
     return false
 end
 
-function utils.normalize(vx, vy, vz)
-    local l = sqrt(vx*vx + vy*vy + vz*vz)
+function utils.normalize(x, y, z)
+    local l = sqrt(x*x + y*y + z*z)
     if l == 0 then return 0,1,0 end
-    return vx/l, vy/l, vz/l
+    return x/l, y/l, z/l
+end
+
+function utils.normalize3(x, y, z)
+    local l = sqrt(x*x + y*y + z*z)
+    if l < 1e-6 then return 0,0,1 end
+    return x/l, y/l, z/l
 end
 
 function utils.toByte(v, gamma)
@@ -167,8 +176,19 @@ function utils.tileKey(x, z)
     return floor(x) .. ":" .. floor(z)
 end
 
-function utils.getChunkKey(cx, cz)
-    return cx * 10000 + cz
+function utils.getTileCenter(tile)
+    local c1, c2, c3, c4 = tile[1], tile[2], tile[3], tile[4]
+    local tx = tile.x or (c1 and (c1[1] + c3[1]) * 0.5) or 0
+    local tz = tile.z or (c1 and (c1[3] + c3[3]) * 0.5) or 0
+    local ty = c1 and (c1[2] + c2[2] + c3[2] + c4[2]) * 0.25 or 0
+    return tx, ty, tz
+end
+
+function utils.setQuadVerts(quad, v1, v2, v3, v4)
+    quad[1][1], quad[1][2], quad[1][3] = v1[1], v1[2], v1[3]
+    quad[2][1], quad[2][2], quad[2][3] = v2[1], v2[2], v2[3]
+    quad[3][1], quad[3][2], quad[3][3] = v3[1], v3[2], v3[3]
+    quad[4][1], quad[4][2], quad[4][3] = v4[1], v4[2], v4[3]
 end
 
 return utils

@@ -1,6 +1,6 @@
 local love = require "love"
 local lg = love.graphics
-local floor, sqrt, abs, sin, cos, max, min = math.floor, math.sqrt, math.abs, math.sin, math.cos, math.max, math.min
+local floor, sqrt = math.floor, math.sqrt
 
 local countryball = {
     x = 10, y = 10, z = 10,
@@ -346,7 +346,7 @@ function countryball.update(dt, keyboard, heights, materials, getTileAt, Placeme
     countryball.currentFrame = getFrames(countryball.images, countryball.animation, dt, countryball)
 end
 
-function countryball.draw(drawWithStencil, Inventory, itemModule)
+function countryball.draw(drawWithStencil, Inventory, itemModule, camera)
     local img = countryball.currentFrame or (countryball.images.idle and countryball.images.idle[1])
     if not img then return end
 
@@ -357,15 +357,29 @@ function countryball.draw(drawWithStencil, Inventory, itemModule)
         shakeZ = (math.random() * 2 - 1) * s
     end
 
-    drawWithStencil(countryball.x + shakeX, countryball.y, countryball.z + shakeZ, img, countryball.flip)
     local selected = Inventory:getSelected()
-    if not selected or not selected.type then return end
-
-    local itemImg = itemModule.getItemImage(selected.type)
-    if not itemImg then return end
-
     local offsetX = countryball.flip and -0.5 or 0.5
-    drawWithStencil(countryball.x + offsetX, countryball.y + 0.2, countryball.z + 0.1, itemImg, countryball.flip)
+    local itemImg = selected and selected.type and itemModule.getItemImage(selected.type)
+    local itemX = countryball.x + offsetX
+    local itemY = countryball.y + 0.2
+    local itemZ = countryball.z + 0.1
+
+    local itemBehind = false
+    if itemImg and camera then
+        local _, _, ballDepth = camera:project3D(countryball.x, countryball.y, countryball.z)
+        local _, _, itemDepth = camera:project3D(itemX, itemY, itemZ)
+        itemBehind = itemDepth and ballDepth and itemDepth > ballDepth
+    end
+
+    if itemBehind then
+        drawWithStencil(itemX, itemY, itemZ, itemImg, countryball.flip)
+    end
+
+    drawWithStencil(countryball.x + shakeX, countryball.y, countryball.z + shakeZ, img, countryball.flip)
+
+    if itemImg and not itemBehind then
+        drawWithStencil(itemX, itemY, itemZ, itemImg, countryball.flip)
+    end
 end
 
 function countryball.viewDraw(x, y, flip, size)

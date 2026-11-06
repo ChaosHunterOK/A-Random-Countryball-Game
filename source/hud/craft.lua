@@ -60,15 +60,16 @@ function Crafting:draw(inventory, itemTypes, items)
         lg.setColor(1,1,1,1)
         lg.draw(self.invBar, x, y, 0, scale, scale)
 
-        if slot and slot.type then
-            local itemImg = itemTypes[slot.type].img
+        local slotDef = slot and slot.type and itemTypes[slot.type] or nil
+        if slotDef and slotDef.img then
+            local itemImg = slotDef.img
             local iw, ih = itemImg:getWidth(), itemImg:getHeight()
             lg.draw(itemImg, x + (barWidth-iw*scale)/2, y + (barHeight-ih*scale)/2, 0, scale, scale)
             lg.setColor(1,1,1,1)
             utils.drawTextWithBorder(slot.count, x + 16*scale, y + 8*scale)
 
-            if slot.durability and itemTypes[slot.type].durability then
-                local maxDur = itemTypes[slot.type].durability
+            if slot.durability and slotDef.durability then
+                local maxDur = slotDef.durability
                 local ratio = math.max(0, slot.durability / maxDur)
 
                 local barW = barWidth - 12 * scale
@@ -161,7 +162,8 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
     if (button == 1 or button == 2) and self.craftedItem and mx >= outputX and mx <= outputX + barWidth and my >= outputY and my <= outputY + barHeight then
         local outType = self.craftedItem.type
         local outCount = self.craftedItem.count
-        local maxDur = itemTypes[outType].durability or nil
+        local outDef = itemTypes[outType]
+        local maxDur = outDef and outDef.durability or nil
 
         if inventory:hasFreeSlot() then
             inventory:add(outType, outCount, itemTypes)
@@ -216,7 +218,8 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                 self.draggingFrom = nil
                 return
             elseif inventory.heldItem then
-                local stackLimit = itemTypes[inventory.heldItem].stack or 1
+                local heldDef = itemTypes[inventory.heldItem]
+                local stackLimit = (heldDef and heldDef.stack) or 1
                 if self.draggingFrom == i then
                     self.slots[i] = {
                         type = inventory.heldItem,
@@ -235,7 +238,7 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                             count = inventory.heldCount,
                             durability = inventory.heldDurability
                         }
-                        inventory.heldItem, inventory.heldCount = nil, 0
+                        inventory.heldItem, inventory.heldCount, inventory.heldDurability = nil, 0, nil
                     elseif button == 2 then
                         self.slots[i] = {
                             type = inventory.heldItem,
@@ -243,7 +246,9 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                             durability = inventory.heldDurability
                         }
                         inventory.heldCount = inventory.heldCount - 1
-                        if inventory.heldCount <= 0 then inventory.heldItem = nil end
+                        if inventory.heldCount <= 0 then
+                            inventory.heldItem, inventory.heldCount, inventory.heldDurability = nil, 0, nil
+                        end
                     end
 
                 elseif slot.type == inventory.heldItem then
@@ -255,7 +260,9 @@ function Crafting:mousepressed(mx, my, button, inventory, itemTypes, itemsModule
                         slot.count = slot.count + canTake
                         inventory.heldCount = inventory.heldCount - canTake
                     end
-                    if inventory.heldCount <= 0 then inventory.heldItem = nil end
+                    if inventory.heldCount <= 0 then
+                        inventory.heldItem, inventory.heldCount, inventory.heldDurability = nil, 0, nil
+                    end
 
                 elseif button == 1 then
                     local temp = {

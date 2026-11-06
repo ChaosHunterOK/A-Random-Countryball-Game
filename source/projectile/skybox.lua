@@ -54,7 +54,7 @@ local function makeSphere(radius, rings, segments)
 end
 
 function Skybox.load()
-    Skybox.texture = lg.newImage("image/skyBox/top.png")
+    Skybox.texture = lg.newImage("image/sky/skyBox/top.png")
     Skybox.texture:setWrap("repeat", "repeat")
 
     sphereVerts3D = makeSphere(400, 50, 48)
@@ -98,24 +98,35 @@ function Skybox.draw()
 
     local cr, cg, cb, ca = unpack(Skybox.color)
 
-    for i = 1, count do
-        local v = sphereVerts3D[i]
-        local sx, sy = camera:project3D(v[1], v[2], v[3])
+    for triangle = 1, count, 3 do
+        local projected = true
 
-        local vert = verts2DCache[i]
-        if sx and sy then
-            vert[1] = sx
-            vert[2] = sy
-        else
-            vert[1] = 0
-            vert[2] = 0
+        for i = triangle, triangle + 2 do
+            local v = sphereVerts3D[i]
+            local sx, sy = camera:project3D(cx + v[1], cy + v[2], cz + v[3])
+            local vert = verts2DCache[i]
+
+            if sx and sy then
+                vert[1] = sx
+                vert[2] = sy
+            else
+                projected = false
+            end
+            vert[3] = v[4]
+            vert[4] = v[5]
+            vert[5] = cr
+            vert[6] = cg
+            vert[7] = cb
+            vert[8] = ca
         end
-        vert[3] = v[4]
-        vert[4] = v[5]
-        vert[5] = cr
-        vert[6] = cg
-        vert[7] = cb
-        vert[8] = ca
+
+        if not projected then
+            for i = triangle, triangle + 2 do
+                local vert = verts2DCache[i]
+                vert[1] = -10000
+                vert[2] = -10000
+            end
+        end
     end
 
     skyMesh:setVertices(verts2DCache)

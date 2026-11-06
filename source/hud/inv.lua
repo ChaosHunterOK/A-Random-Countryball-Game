@@ -31,8 +31,16 @@ for i = 1, Inventory.maxSlots do
     Inventory.slotAlphaTarget[i] = Inventory.slotAlpha[i]
 end
 
+function Inventory:clearHeld()
+    self.heldItem = nil
+    self.heldCount = 0
+    self.heldDurability = nil
+end
+
 function Inventory:canAddEvenIfFull(itemType, itemTypes)
-    local stackLimit = itemTypes[itemType].stack or 1
+    if not itemType then return false end
+    local def = itemTypes[itemType]
+    local stackLimit = (def and def.stack) or 1
     for i = 1, self.maxSlots do
         local slot = self.items[i]
         if slot and slot.type == itemType and slot.count < stackLimit then
@@ -43,9 +51,11 @@ function Inventory:canAddEvenIfFull(itemType, itemTypes)
 end
 
 function Inventory:add(itemType, amount, itemTypes, durability)
+    if not itemType then return false end
     amount = amount or 1
-    local stackLimit = itemTypes[itemType].stack or 1
-    if itemType then
+    local def = itemTypes[itemType]
+    local stackLimit = (def and def.stack) or 1
+    do
         if itemType:find("clay_") then
             Progression:trackItemCrafted(itemType, itemTypes)
         elseif itemType == "copper_ingot" then
@@ -66,7 +76,7 @@ function Inventory:add(itemType, amount, itemTypes, durability)
     for i = 1, self.maxSlots do
         if not self.items[i] and amount > 0 then
             local toAdd = math.min(amount, stackLimit)
-            self.items[i] = { type = itemType, count = toAdd, durability = durability or itemTypes[itemType].durability }
+            self.items[i] = { type = itemType, count = toAdd, durability = durability or (def and def.durability) }
             amount = amount - toAdd
             if amount <= 0 then break end
         end
@@ -116,14 +126,15 @@ function Inventory:draw(itemTypes)
         lg.setColor(1,1,1,1)
 
         local slot = self.items[i]
-        if slot and slot.count > 0 then
-            local img = itemTypes[slot.type].img
+        local slotDef = slot and slot.type and itemTypes[slot.type] or nil
+        if slot and slot.count > 0 and slotDef and slotDef.img then
+            local img = slotDef.img
             local iw, ih = img:getWidth(), img:getHeight()
             lg.draw(img, x + (barW-iw*scale)/2, y + (barH-ih*scale)/2, 0, scale, scale)
             utils.drawTextWithBorder(tostring(slot.count), x+16*scale, y+8*scale)
 
-            if slot.durability and itemTypes[slot.type].durability then
-                local ratio = math.max(0, slot.durability / itemTypes[slot.type].durability)
+            if slot.durability and slotDef.durability then
+                local ratio = math.max(0, slot.durability / slotDef.durability)
                 local bw, bh = barW-12*scale, 6*scale
                 local bx, by = x+6*scale, y+barH-bh-6*scale
                 lg.setColor(0,0,0)
@@ -139,15 +150,16 @@ function Inventory:draw(itemTypes)
         end
     end
 
-    if self.heldItem then
+    local heldDef = self.heldItem and itemTypes[self.heldItem] or nil
+    if heldDef and heldDef.img then
         local mx, my = love.mouse.getPosition()
-        local img = itemTypes[self.heldItem].img
         lg.setColor(1,1,1,1)
-        lg.draw(img, mx-16*scale, my-16*scale, 0, scale, scale)
+        lg.draw(heldDef.img, mx-16*scale, my-16*scale, 0, scale, scale)
         utils.drawTextWithBorder(self.heldCount, mx+12*scale, my+12*scale)
     end
 
-    if self.hoveredItem and itemTypes[self.hoveredItem].img then
+    local hoveredDef = self.hoveredItem and itemTypes[self.hoveredItem] or nil
+    if hoveredDef and hoveredDef.img then
         lg.setColor(0,0,0,0.7)
         local name = string.gsub(self.hoveredItem, "_", " ")
         local w = lg.getFont():getWidth(name) + 10
@@ -225,17 +237,18 @@ function Inventory:mousepressed(mx, my, button, itemTypes, crafting)
             else
                 if slot then
                     if slot.type == self.heldItem then
-                        local stackLimit = itemTypes[slot.type].stack or 64
+                        local slotDef = itemTypes[slot.type]
+                        local stackLimit = (slotDef and slotDef.stack) or 64
                         if button == 1 then
                             local canTake = math.min(self.heldCount, stackLimit - slot.count)
                             slot.count = slot.count + canTake
                             self.heldCount = self.heldCount - canTake
-                            if self.heldCount <= 0 then self.heldItem = nil end
+                            if self.heldCount <= 0 then self:clearHeld() end
                         elseif button == 2 then
                             if slot.count < stackLimit then
                                 slot.count = slot.count + 1
                                 self.heldCount = self.heldCount - 1
-                                if self.heldCount <= 0 then self.heldItem = nil end
+                                if self.heldCount <= 0 then self:clearHeld() end
                             end
                         end
                     else
@@ -254,11 +267,11 @@ function Inventory:mousepressed(mx, my, button, itemTypes, crafting)
                 else
                     if button == 1 then
                         self.items[i] = { type = self.heldItem, count = self.heldCount, durability = self.heldDurability }
-                        self.heldItem = nil
+                        self:clearHeld()
                     elseif button == 2 then
                         self.items[i] = { type = self.heldItem, count = 1, durability = self.heldDurability }
                         self.heldCount = self.heldCount - 1
-                        if self.heldCount <= 0 then self.heldItem = nil end
+                        if self.heldCount <= 0 then self:clearHeld() end
                     end
                 end
             end
@@ -292,22 +305,21 @@ function Inventory:mousereleased(mx, my, button, itemsModule, countryball, craft
                 self.items[i].count = self.items[i].count + toAdd
                 self.heldCount = self.heldCount - toAdd
                 if self.heldCount <= 0 then
-                    self.heldItem = nil
-                    self.heldCount = 0
+                    self:clearHeld()
                 else
                     for j = 1, self.maxSlots do
                         if not self.items[j] then
                             local put = math.min(self.heldCount, stackLimit)
-                            self.items[j] = { type = self.heldItem, count = put }
+                            self.items[j] = { type = self.heldItem, count = put, durability = self.heldDurability }
                             self.heldCount = self.heldCount - put
                             if self.heldCount <= 0 then break end
                         end
                     end
+                    if self.heldCount <= 0 then self:clearHeld() end
                 end
             elseif not self.items[i] then
                 self.items[i] = {type = self.heldItem, count = self.heldCount, durability = self.heldDurability}
-                self.heldItem = nil
-                self.heldCount = 0
+                self:clearHeld()
             end
             break
         end
@@ -316,8 +328,7 @@ function Inventory:mousereleased(mx, my, button, itemsModule, countryball, craft
         if crafting.mousepressed then
             crafting:mousepressed(mx, my, 1, self, itemsModule and itemsModule.itemTypes or {}, itemsModule)
             if not self.heldItem or self.heldCount == 0 then
-                self.heldItem = nil
-                self.heldCount = 0
+                self:clearHeld()
                 self.dragging = false
                 return
             end
@@ -328,16 +339,14 @@ function Inventory:mousereleased(mx, my, button, itemsModule, countryball, craft
         for j = 1, self.maxSlots do
             if not self.items[j] then
                 self.items[j] = { type = self.heldItem, count = self.heldCount, durability = self.heldDurability }
-                self.heldItem = nil
-                self.heldCount = 0
+                self:clearHeld()
                 break
             end
         end
     end
     if self.heldItem and not insideInventory and itemsModule and itemsModule.dropItem then
         itemsModule.dropItem(countryball.x + 0.6, countryball.y + 0.5, countryball.z + 0.1, self.heldItem, self.heldCount, self.heldDurability)
-        self.heldItem = nil
-        self.heldCount = 0
+        self:clearHeld()
     end
     self.dragging = false
 end

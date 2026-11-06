@@ -11,6 +11,11 @@ local CreditsMenu = {
     open = true,
 }
 
+function CreditsMenu.resize(width, height)
+    base_width, base_height = width, height
+    CreditsMenu.visibleRows = math.max(1, math.floor((height - 120) / CreditsMenu.itemSpacing))
+end
+
 local creditsVolume = 0
 local fadeSpeed = 2
 function CreditsMenu.update(dt)
